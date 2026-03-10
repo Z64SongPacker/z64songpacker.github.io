@@ -1,0 +1,135 @@
+
+.loading-overlay {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  color: var(--bs-primary-text-emphasis);
+  background-color: rgba(24, 24, 24, .6);
+  z-index: 5600;
+}
+.loading-overlay i{
+  position: absolute;
+  top: 47%;
+  left: 47%;
+}
+
+.btn-game, .btn-series{
+  color: var(--nav-lateral-text);
+  width: 100%;
+  text-decoration: none;
+  padding: 10px 0 10px 20px;
+  transition: .1s;
+  cursor: pointer;
+}
+.btn-game:hover, .btn-series:hover, .btn-series.active:hover{
+  color: var(--bs-primary-text-emphasis);
+  background-color: rgba(0,0,0,.2);
+}
+.btn-game.active{
+  color: var(--bs-primary-text-emphasis);
+  padding-left: 17px;
+  background-color: var(--bs-primary-bg-subtle);
+  border-left: 3px solid var(--bs-primary-text-emphasis);
+}
+
+
+.btn-series.active{
+  background-color: rgba(0,0,0,.18);
+}
+.collapse-series {
+  background-color: rgba(0,0,0,.12);
+}
+
+
+.btn-song{
+  padding: .4rem;
+  transition: .1s;
+  cursor: pointer;
+}
+.btn-song hr{
+  margin: .4rem 0;
+}
+.btn-song .badge{
+  color: inherit;
+}
+.btn-song.active{
+  background-color: var(--bs-primary-bg-subtle);
+  border-color: var(--bs-primary-text-emphasis);
+}
+#panelSongView.hide-metadata .metadata{
+  display: none;
+}
+#panelSongView.hide-categories .categories{
+  display: none;
+}
+#panelSongView.hide-format .format{
+  display: none;
+}
+
+.sv-collapse{
+  background-color: rgba(0,0,0,.12);
+  border-bottom: var(--bs-border-width) var(--bs-border-style) var(--bs-border-color);
+}
+.sv-collapse.collapsed{
+  background-color: inherit;
+  border-bottom: inherit;
+}
+.sv-collapse:hover{
+  color: var(--bs-primary-text-emphasis);
+  background-color: rgba(0,0,0,.2);
+}
+/*#panelSongs, #panelFanfares{
+  background-color: rgba(0,0,0,.12);
+}*/
+
+.responsive-iframe {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  padding-top: 56.25%;
+}
+.responsive-iframe iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.search-input{
+  position: relative;
+}
+.search-input input{
+  font-size: 1.25rem;
+  background-color: transparent;
+  border-color: transparent;
+  font-weight: 500;
+  line-height: 1.2;
+  margin: 0;
+  border-radius: var(--bs-border-radius);
+  transition: border-color .15s ease-in-out,box-shadow .15s ease-in-out;
+  width: 100%;
+}
+.search-input::after{
+  content: "\f002";
+  font-family: "Font Awesome 6 Free";
+  font-weight: 900;
+  position: absolute;
+  top: 3px;
+  right: 10px;
+  pointer-events: none;
+}
+
+
+.btn-search{
+  border: var(--bs-border-width) solid var(--bs-border-color);
+  font-size: 1rem;
+  padding: .4rem 0;
+}
+.btn-search:hover{
+  border: var(--bs-border-width) solid var(--bs-border-color);
+}

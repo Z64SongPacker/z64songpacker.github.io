@@ -1,0 +1,1590 @@
+<!DOCTYPE html>
+<html data-bs-theme="dark">
+  <head>
+    <title>Z64 Song Packer</title>
+
+    <!-- CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+
+    <!-- JQuery -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
+    <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/themes/smoothness/jquery-ui.css" />
+    <script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
+
+    <!-- Other stuff -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.alphanum/1.0.24/jquery.alphanum.min.js"></script>
+    <script src="js/typeahead.bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-cookie@3.0.5/dist/js.cookie.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js"></script>
+
+    <!-- Packer files -->
+    <link rel="stylesheet" type="text/css" href="css/z64_song_packer.css" />
+    <!-- TODO: Add custom repo stylesheet-->
+  </head>
+  <body>
+    <style>
+      .hint{
+        padding: 0;
+        margin: 0;
+        margin-bottom: .25rem;
+        font-size: 80%;
+        opacity: .5;
+      }
+    </style>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "@popperjs/core": "https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/esm/popper.min.js",
+        "bootstrap": "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.esm.min.js",
+        "yaml": "https://cdn.jsdelivr.net/npm/yaml@2.8.0/browser/index.min.js"
+      }
+    }
+    </script>
+    <script type="module">
+      import * as bootstrap from "bootstrap";
+      import { MMCategories } from "./js/mmcategories.js";
+      import YAML from 'yaml';
+
+      // TODO: ADD SUPPORT FOR MULTIPLE PREVIEW FILES!!!
+      // TODO: ADD DISCORD FRIENDLY FORMAT FOR SUBMISSION COMMENTS FOR PRS 
+
+      var defaultSettings = {
+        // Default options
+        darkTheme: true,
+        autosaveSelections: false,
+        showDMCACriticalTracks: false,
+        githubFetchDelay: 1250,
+        isListView: true,
+        viewMetadata: false,
+        viewCategories: false,
+        viewFormat: true,
+        maintainFolderStructure: false,
+        useShortGameNames: false,
+        volumePreAmplifying: 0,
+
+        // Available repos
+        // These repos CANNOT be deleted by the user, they will always be available, ya like it or not!
+        selectedRepoId: "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0",
+        userRepos: [
+          { id: "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0", selections: [] },
+          { id: "Japas-Jams/MM-Custom-Sequences/main", selections: [] }
+        ],
+      };
+
+      var repos = [];
+      var selectedRepo = null;
+      var database = []; // z64songs.json
+      var gamesDb = []; // z64games.json
+      var selections = [];
+      var selectedSeries = [];
+      var currentSongList = [];
+      var filteredDatabase = [];
+      var autosaveSelections = false;
+      var showDMCACriticalTracks = false;
+      var isListView = true;
+      var defaultAvatarUrl = "https://github.githubassets.com/images/gravatars/gravatar-user-420.png?size=32";
+
+
+
+      function errorResponseToast(response){
+        errorToast(`An error ocurred: ${response.url} [${response.status}]`);
+        /*for (const pair of response.headers.entries()) {
+          console.log(`${pair[0]}: ${pair[1]}`);
+        }*/
+      }
+      function toast(message, backgroundClass="bg-primary-subtle", textClass="text-primary-emphasis"){
+        var t = bootstrap.Toast.getOrCreateInstance($("#toast")[0], {
+          delay: 5000
+        });
+        $("#toast").removeClass(function (index, className) {
+          return (className.match (/((^|\s)text-\S+)|((^|\s)bg-\S+)/g) || []).join(' ');
+        }).addClass(backgroundClass + " " + textClass);
+        $("#toastBody").text(message);
+        t.show();
+      }
+      function errorToast(message){
+        toast(message, "bg-danger-subtle", "text-danger-emphasis");//"bg-danger", "text-white");
+      }
+
+      function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      }
+
+      // This function is here to better handle request to raw.githubusercontent.com, given github strict rate limits for unauthenticated requests
+      async function githubFetch(link){
+        var settings = getSettings();
+        await sleep(settings.githubFetchDelay || 1250);
+        
+        // We should retry 3 times (only for special cases!)
+        for(var retry = 0; retry <= 3; retry++){
+          // We use "no-cache", since github correctly uses ETag and Date.
+          // We should trust their versioning (https://developer.mozilla.org/en-US/docs/Web/API/Request/cache)
+          // Although every single github file has a 5 min cache lifespan, but we should respect that!
+          // If we don't want to wait, then we have to login (implement that in the future...)
+          // For 429 retries, we use "reload", since we should NEVER cache it
+          var response = await fetch(link, {
+            headers: {
+              'Accept': 'application/octet-stream'
+            },
+            cache: retry == 0 ? "no-cache" : "reload",
+            redirect: 'follow',
+            //mode: "no-cors"
+          });
+          
+          console.log(response);
+
+          // If the response is an 429 (to many requests), we should wait a bit and try again (5 seconds)
+          // We should retry 3 times, before just returning
+          if(response.status == 429){
+            if(retry >= 3) return response;
+            else{
+              await sleep(5000);
+              continue;
+            }
+            
+          // On every other case, we just return the given response
+          // Everything else should be handled on a case by case basis
+          } else return response;
+        }
+      }
+
+
+
+      // SETTINGS
+
+      function saveSettings(asSettings = true){
+        saveSettingsToStorage();
+        toast((asSettings ? "Settings" : "Selections") + " saved to the browser's local storage!");
+      }
+      function saveSettingsToStorage(repoToModify = "", addNewRepo = true){
+        var settings = getSettings();
+
+        // Start with the user options
+        settings.darkTheme = $("html").attr("data-bs-theme") == "dark";
+        settings.autosaveSelections = autosaveSelections; 
+        settings.showDMCACriticalTracks = showDMCACriticalTracks;
+        settings.githubFetchDelay = parseInt(parseFloat($("#rgGithubFetchDelay").val()) * 1000);
+        settings.isListView = isListView;
+        settings.viewMetadata = $("#cbxViewMetadata").is(":checked");
+        settings.viewCategories = $("#cbxViewCategories").is(":checked");
+        settings.viewFormat = $("#cbxViewFormat").is(":checked");
+        settings.maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
+        settings.useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
+        settings.volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
+
+        // Then, save selected repo
+        settings.selectedRepoId = selectedRepo.repoId;
+
+        // Now, save also the user selections for this current repo
+        var userRepos = settings.userRepos || [];
+        var uuidSelections = selections.map(i => database[i].uuid);
+        var repoIndex = userRepos.findIndex(r => r.id == selectedRepo.repoId);
+
+        // If we cant find the repo, just add it as a new one
+        // This should not happen tho...
+        if(repoIndex == -1) userRepos.push({
+          id: selectedRepo.repoId,
+          selections: uuidSelections,
+        });
+        else userRepos[repoIndex].selections = uuidSelections;
+
+        // We modify the repos if necessary
+        if(repoToModify){
+          if(addNewRepo){
+            var isAlreadyOnSettings = userRepos.some(function(repo){ return repo.id == repoToModify; });
+            if(isAlreadyOnSettings){
+              errorToast(`Repo ${repoToModify} is already registered!`);
+
+            } else{
+              userRepos.push({ id: repoToModify, selections: [] });
+              toast(`Repo ${repoToModify} added successfully!`);
+            }
+          } else{
+            userRepos = userRepos.filter(function(repo){ return repo.id !== repoToModify; });
+            toast(`Repo ${repoToModify} removed successfully!`);
+          }
+        }
+        settings.userRepos = userRepos;
+        
+        // Finish the saving!
+        localStorage.settings = btoa(JSON.stringify(settings));
+      }
+      function getSettings(){
+        try{
+          var settings = JSON.parse(atob(localStorage.settings));
+          defaultSettings.userRepos.forEach((repo, i) => {
+            // If we do not find this default repo within the user ones, we just add it
+            var isAvailable = settings.userRepos.some(r => r.id == repo.id);
+            if(!isAvailable) settings.userRepos.push(repo);
+          });
+          return settings;
+
+        // If we cannot load the settings, then we crate a new one with default values
+        } catch(e){
+          return defaultSettings;
+        }
+      }
+      function deleteSettings(){
+        localStorage.removeItem("settings");
+      }
+      const toText = file => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsText(file);
+      });
+      async function loadSettingsFromFile(event){
+        $("#loadingOverlay").removeClass("d-none");
+        try{
+          var file = event.target.files[0];
+          var settingsText = await toText(file);
+          var settingsJson = JSON.parse(settingsText);
+
+          // TODO: CHECK IF IMPORTANT SETTINGS ARE MISSINGS, AND SO, REJECT THIS FILE
+
+          // Fix any missing properties
+          for (const [key, value] of Object.entries(defaultSettings)) {
+            // console.log(`${key}: ${value}`);
+
+            // If we dont have a property, assign the default value! 
+            if(!settingsJson.hasOwnProperty(key)){
+              settingsJson[key] = value;
+            }
+          }
+
+          // Actually save the new settings!
+          localStorage.settings = btoa(JSON.stringify(settingsJson));
+
+        } catch(e){
+          errorToast("There was an error! These settings file seems to be corrupted...");
+        }
+
+        init();
+      }
+
+      async function addRepository(){
+        $("#loadingOverlay").removeClass("d-none");
+        var newRepo = $("#txtAddRepository").val() ?? "";
+        var parts = newRepo.split("/");
+
+        if(parts.length != 3){
+          errorToast("The repository link doesn't have a valid format");
+
+        } else{
+          // Search for the z64 properties file
+          // First we try getting it from the main branch (classic method)
+          var z64PropertiesLink = `https://raw.githubusercontent.com/${parts[0]}/${parts[1]}/${parts[2]}/z64packer/z64musicpacker.properties`;
+          var propertiesResponse = await githubFetch(z64PropertiesLink);
+
+          // If we did not find there, we try the secondary branch
+          if(!propertiesResponse.ok){
+            var z64PropertiesLink = `https://raw.githubusercontent.com/${parts[0]}/${parts[1]}/z64packer/z64musicpacker.properties`;
+            var propertiesResponse = await githubFetch(z64PropertiesLink);
+          }
+
+
+          // If we find it, we add this repository!
+          if(propertiesResponse.ok){
+            saveSettingsToStorage(newRepo, true);
+            
+          // If we don't find it, this is not a valid Z64 repository
+          } else{
+            errorToast("This is not a valid Z64 repository!");
+          }
+        }
+
+        await init();
+        $("#loadingOverlay").addClass("d-none");
+      }
+      async function removeRepository(repoId){
+        console.log("Removing repo: " + repoId);
+        $("#loadingOverlay").removeClass("d-none");
+        saveSettingsToStorage(repoId, false);
+        await init();
+        $("#loadingOverlay").addClass("d-none");
+      }
+
+
+
+      // MAIN LOADING
+      
+      async function init(){
+        // We don't need auth for the stuff we will be doing here...
+        $("#loadingOverlay").removeClass("d-none");
+
+        try{
+          var settings = getSettings();
+
+          // Load the user's settings!
+          $("html").attr("data-bs-theme", settings.darkTheme ? "dark" : "light");
+          $("#cbxAutosaveSelections").prop('checked', settings.autosaveSelections);
+          autosaveSelections = settings.autosaveSelections;
+          $("#cbxShowDMCACriticalTracks").prop('checked', settings.showDMCACriticalTracks);
+          $("#rgGithubFetchDelay").val((settings.githubFetchDelay || 1250) * 0.001).trigger("input");
+          showDMCACriticalTracks = settings.showDMCACriticalTracks;
+          isListView = settings.isListView;
+          $("#cbxViewMetadata").prop('checked', settings.viewMetadata);
+          $("#cbxViewCategories").prop('checked', settings.viewCategories);
+          $("#cbxViewFormat").prop('checked', settings.viewFormat);
+          $("#cbxMaintainFolderStructure").prop('checked', settings.maintainFolderStructure);
+          $("#cbxUseShortGameNames").prop('checked', settings.useShortGameNames);
+          $("#rgVolumePreAmplifying").val(settings.volumePreAmplifying).trigger("input");
+
+          // Now load their selections
+          // Settings by default add the default repos together with the user-defined ones
+          var userRepos = settings.userRepos.map(r => r.id);
+          repos = [];
+
+          // Load the properties from each repo
+          // We do this every time, to always have the latest version of each one
+          // await Promise.all(userRepos.map(async (id) => { // <- Swapped to normal for-loop to allow sequencial requests, instead of simultaneous
+          for(var i = 0; i < userRepos.length; i++){
+            var id = userRepos[i];
+
+            var idSplitted = id.split("/");
+            var owner = idSplitted[0];
+            var repo = idSplitted[1];
+            var defaultBranch = idSplitted[2];
+
+            // Get the z64musicpacker.properties from this repo
+            // From main branch: https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/z64packer/z64musicpacker.properties
+            // From secondary branch: https://raw.githubusercontent.com/${owner}/${repo}/z64packer/z64musicpacker.properties
+            // DISCLAIMER: No fetch in this page should be cached! As we are getting information from github, and that info can change
+            // by the minute, we need to be able to always get the latest version (see https://stackoverflow.com/a/42518434)
+            
+            // First we try getting it from the main branch (classic method)
+            var z64PropertiesLink = `https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/z64packer/z64musicpacker.properties`;
+            var propertiesResponse = await githubFetch(z64PropertiesLink);
+
+            // If we did not find there, we try the secondary branch
+            if(!propertiesResponse.ok){
+              var z64PropertiesLink = `https://raw.githubusercontent.com/${owner}/${repo}/z64packer/z64musicpacker.properties`;
+              var propertiesResponse = await githubFetch(z64PropertiesLink);
+            }
+
+            var repoObject = {
+              repoName: repo,
+              repoOwner: owner,
+              repoDefaultBranch: defaultBranch,
+              repoId: id
+            };
+
+            if(propertiesResponse.ok) {
+              try{
+                // Read the file as json and import the Z64 music packer properties
+                var properties = await propertiesResponse.json(); // TODO: WHAT DO WE DO IF THE PROPERTIES ARE BROKEN???
+                repoObject = { ...repoObject, ...properties };
+
+              } catch(e){
+                repoObject["error"] = "An error ocurred while procesing properties file. Please report this error to the repository owner!";
+                errorToast(`An error ocurred while procesing z64properties file for: ${id}`);
+                console.log(e);
+              }
+              
+            } else{
+              if(propertiesResponse.status == 404) repoObject["error"] = "Properties file not found. This must not be a valid Z64 repository!";
+              else if(propertiesResponse.status == 429) repoObject["error"] = "Too many requests! Please try again later.";
+              else repoObject["error"] = `An unknown error has ocurred [${propertiesResponse.status}].`;
+              errorResponseToast(propertiesResponse);
+            }
+
+            // Add our repo to the list
+            repos.push(repoObject);
+          } //));
+
+          
+          $("#panelRepoSelection").empty();
+          repos.forEach((repo, i) => {
+            var isDeletable = !defaultSettings.userRepos.some(r => r.id == repo.repoId);
+            var isBroken = Object.hasOwn(repo, "error");
+            $("#panelRepoSelection").append(
+              `<button type="button" class="btn border w-100 mb-3 ${isBroken ? "bg-danger-subtle text-danger-emphasis" : ""}" id="btnSelectRepo${i}">
+                <div class="row align-items-center">
+                  <img class="rounded-circle ml-3 col-auto" width="45" height="45" src="${repo.avatarUrl ?? defaultAvatarUrl}" />
+                  <div class="col text-start">
+                    <h5 class="mb-0">${repo.name ?? repo.repoName}</h5>
+                    <span class="opacity-75">${isBroken ? repo.error : repo.description}</span>
+                    <span class="opacity-25">${repo.repoId}</span>
+                  </div>
+                  ${isDeletable ? `<i id="btnRemoveRepo${i}" class="col-auto fa-solid fa-times" style="cursor: pointer"></i>` : ""}
+                </div>
+              </button>`
+            );
+            
+            // Only allow deleting this repository if it's manually added by the user
+            if(isDeletable) $(`#btnRemoveRepo${i}`).on("click", function(){
+              removeRepository(repo.repoId);
+            });
+
+            // Only allow selecting this repo if it's not broken
+            if(!isBroken) $(`#btnSelectRepo${i}`).on("click", function(){
+              selectedRepo = repo;
+              loadRepo();
+            });
+          });
+          
+          // Try to load the selected repo from the storage
+          var selectedRepoId = settings.selectedRepoId;
+          selectedRepo = repos.find(r => r.repoId == selectedRepoId) || repos[0];
+
+          await loadRepo();
+          $("#loadingOverlay").addClass("d-none");
+
+        } catch(e){
+          errorToast("An fatal error ocurred while loading! Reseting settings...");
+          console.log("An fatal error ocurred while loading! Reseting settings...");
+          console.log(e);
+          deleteSettings();
+          init();
+        }
+      }
+
+
+      async function loadRepo(){
+        try{
+          $("#loadingOverlay").removeClass("d-none");
+          $("#panelErrorView, #panelSongView, #panelGameView").addClass("d-none");
+
+          // Set the main selector
+          $("#imgRepoAvatar").attr("src", selectedRepo.avatarUrl ?? defaultAvatarUrl);
+          $("#lbRepoName").text(selectedRepo.name ?? selectedRepo.repoName);
+          
+          var rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/`;
+          if(selectedRepo.useSecondaryBranch == 'true') rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/z64packer/`;
+
+          // Reset!
+          gamesDb = [];
+          database = [];
+
+          // Get the optional games database from the current repo
+          var gamesDbLink = rawLink + "z64games.json";
+          var gamesDbResponse = await githubFetch(gamesDbLink);
+          if(gamesDbResponse.ok){
+            gamesDb = await gamesDbResponse.json();
+
+          } else{
+            loadErrorView(gamesDbResponse);
+            return;
+          }
+
+          // Get the database from the current repo
+          var dbLink = rawLink + "z64songs.json";
+          var dbResponse = await githubFetch(dbLink);
+          if(dbResponse.ok){
+            // Load the database | IMMEDIATLY filter DMCA-critical tracks, we don't want any surprises!
+            database = (await dbResponse.json()).filter((s) => showDMCACriticalTracks ? true : (s.isDMCACritical ?? false) == false);
+            database.forEach((item, i) => {
+              // We will use an index to map quickly. But when we want to export/import, we will use the uuid.
+              item.index = i;
+            });
+            filteredDatabase = database;
+
+            // Get the saved selections
+            selections = [];
+            var settings = getSettings();
+            var userRepo = settings.userRepos.find(r => r.id == selectedRepo.repoId);
+            
+            if(userRepo){
+              //console.log("Loading selections... ");
+              //console.log(userRepo);
+              var songIndices = database.filter((s) => userRepo.selections.includes(s.uuid)).map((s) => s.index);
+              selections.push(...songIndices);
+            }
+
+            // Show the list of games to the user
+            loadGamesList();
+
+            // Now load the filters
+            var musicGroups = [...new Set(database.map(s => s.game))].sort();
+
+            $("#ddlFilterComposers").empty().append($("<option>", { value: "", text: "Any" }));
+            var composers = [...new Set(database.map(s => s.composers).concat(["Unknown"]).flat().filter(c => c))].sort();
+            composers.forEach(composer => {
+              $("#ddlFilterComposers").append($("<option>", {
+                value: composer,
+                text: composer
+              }));
+            });
+
+            $("#ddlFilterConverters").empty().append($("<option>", { value: "", text: "Any" }));
+            var converters = [...new Set(database.map(s => s.converters).concat(["Unknown"]).flat().filter(c => c))].sort();
+            converters.forEach(converter => {
+              $("#ddlFilterConverters").append($("<option>", {
+                value: converter,
+                text: converter
+              }));
+            });
+
+            // We finish the loading
+            $("#panelSongView, #panelGameView").removeClass("d-none");
+            $("#loadingOverlay").addClass("d-none");
+
+            // Close the repo selection modal if it's open
+            var modalRepoSelection = bootstrap.Modal.getInstance('#modalRepoSelection');    
+            modalRepoSelection?.hide();
+
+            // Save our selections to storage
+            saveSettingsToStorage();
+
+            // Load default song view
+            loadSongsList([]);
+
+          } else{
+            loadErrorView(dbResponse);
+            return;
+          }
+        } catch(e){
+          loadErrorViewWithMessage("An unknown error has ocurred: " + e);
+        }
+      }
+      function loadErrorView(response){
+        var errorMessage = "";
+        if(response.status == 404) errorMessage = "Song and/or game database file not found. There must be a problem in the repository properties. Contact the repository owner for help.";
+        else if(response.status == 429) errorMessage = "Too many requests! Please try again later.";
+        else errorMessage = `An unknown error has ocurred [${response.status}].`;
+        errorResponseToast(response);
+        loadErrorViewWithMessage(errorMessage);
+      }
+      function loadErrorViewWithMessage(errorMessage){
+        $("#lbErrorDescription").html(errorMessage);
+        $("#panelErrorView").removeClass("d-none");
+        $("#loadingOverlay").addClass("d-none");
+      }
+
+      function resetFilters(){
+        $("#txtFilterGameName").val("");
+        $("#txtFilterSongName").val("");
+        $("#ddlFilterSequenceType").val("");
+        $("#ddlFilterMusicGroups").val("");
+        $("#ddlFilterComposers").val("");
+        $("#ddlFilterConverters").val("");
+        $("#cbxFilterVanillaBank").prop('checked', true);
+        $("#cbxFilterCustomBank").prop('checked', true);
+        $("#cbxFilterCustomSamples").prop('checked', true);
+        applyFilters();
+      }
+      function applyFilters(){
+        var filterGameName = $("#txtFilterGameName").val();
+        var filterSongName = $("#txtFilterSongName").val();
+        var filterSequenceType = $("#ddlFilterSequenceType").val();
+        var filterMusicGroups = $("#ddlFilterMusicGroups").val();
+        var filterComposers = $("#ddlFilterComposers").val(); // TODO: Convert these ones into select multiples... with chosen
+        var filterConverters = $("#ddlFilterConverters").val();
+        var filterVanillaBank = $("#cbxFilterVanillaBank").is(":checked");
+        var filterCustomBank = $("#cbxFilterCustomBank").is(":checked");
+        var filterCustomSamples = $("#cbxFilterCustomSamples").is(":checked");
+        var filterFormmask = $("#cbxFilterFormmask").is(":checked");
+
+        filteredDatabase = database.filter(s => {
+          return (filterGameName ? s.game.toLowerCase().includes(filterGameName.toLowerCase()) : true) &&
+                 (filterSongName ? s.song.toLowerCase().includes(filterSongName.toLowerCase()) : true) &&
+                 (filterSequenceType ? s.type == filterSequenceType : true) &&
+                 (filterMusicGroups ? (s.categories ?? []).includes(filterMusicGroups) : true) &&
+                 (filterComposers ? (s.composers ?? []).includes(filterComposers) : true) &&
+                 (filterConverters ? (s.converters ?? []).includes(filterConverters) : true) &&
+
+                 ((filterCustomSamples ? s.usesCustomSamples : false) ||
+                 (filterCustomBank ? (s.usesCustomBank && !s.usesCustomSamples) : false) ||
+                 (filterVanillaBank ? (!s.usesCustomSamples && !s.usesCustomBank) : false) ||
+                 (filterFormmask ? s.usesFormmask : false));
+        });
+
+        loadGamesList();
+        loadSongsList([]);
+      }
+
+      function loadGamesList(){
+        $("#panelGames").empty();
+
+        // TODO: WE NEED TO ORDER THIS STUFF
+        // Basically, we need the series together with the games that have no series
+        // Then, search for the games that ARE part of a series, and add them inside...
+        // I think we need to add a method that returns a game.
+
+        // Get the games list, with no dupes
+        var games = [...new Set(filteredDatabase.map(s => s.game))].sort();
+
+        // Now filter the game list
+        var searchFilter = $("#txtSearchGames").val();
+        games = games.filter(g => g.toLowerCase().includes(searchFilter.toLowerCase()));
+
+        // Get the series, and the games that have none
+        var series = gamesDb.map(g => g.series).filter(series => series);
+        var gamesWithNoSeries = games.filter(game => {
+          var gData = gamesDb.find(g => g.game == game);
+          return !(gData?.series || "");
+        });
+        //console.log("Series:");
+        //console.log(series);
+        //console.log("Games with no series:");
+        //console.log(gamesWithNoSeries);
+
+        // And now, combine them both!
+        var gamesAndSeries = [...new Set(series.concat(gamesWithNoSeries))].sort();
+        //console.log("Games + series:");
+        //console.log(gamesAndSeries);
+
+        // And filter them
+        // TODO: Make a filter that includes games inside a series! That would be hard I think
+        // TODO: That would need to interfere the GAMES collection, and then get the series by that
+        //gamesAndSeries = gamesAndSeries.filter(gs => gs.toLowerCase().includes(searchFilter.toLowerCase()));
+
+        // Now, loop everything and add it to the list
+        gamesAndSeries.forEach((game, i) => {
+
+          // If this a series...
+          var isSeries = series.includes(game);
+          if(isSeries) {
+            var isSelected = selectedSeries.some(s => s == i);
+            var songsOfSeries = filteredDatabase.filter(s => {
+              // First, do not bring any song that doesn't match with the main game filter
+              if(!s.game.toLowerCase().includes(searchFilter.toLowerCase())) return false;
+
+              // Now, try to get the series of this game
+              var gData = gamesDb.find(g => g.game == s.game);
+              return gData?.series == game;
+            });
+
+            // If this series is empty, then we skip it
+            if(songsOfSeries.length == 0) return;
+
+            var songsChecked = songsOfSeries.filter(s => selections.includes(s.index));
+            var checkState = songsChecked.length == 0 ? "" : (songsChecked.length >= songsOfSeries.length ? "checked" : "indeterminate");
+
+            // Set the current state of the checkbox (we do it like this for the intermediate stuff)
+            if(checkState != "") $(`#cbxSeries${i}`).prop(checkState, true);
+            
+            // Filter the games inside this series
+            var gamesOfSeries = gamesDb.filter(g => g.series == game).map(g => g.game).sort();
+            gamesOfSeries = gamesOfSeries.filter(g => g.toLowerCase().includes(searchFilter.toLowerCase()));
+
+            // If there are no games inside this series, then skip it
+            if(gamesOfSeries.length == 0) return;
+
+            // Append the series collapse nav item
+            $("#panelGames").append(
+              `<div class="btn-series row g-0 ${isSelected ? "active" : ""}" id="btnSeries${i}" data-series="${game}">
+                <input class="form-check-input col-auto" type="checkbox" value="" id="cbxSeries${i}" ${checkState}/>
+                <span class="col ms-3">${game}</span>
+                <span class="col-auto me-2">${songsChecked.length}/${songsOfSeries.length}</span>
+                <i class="col-auto fa-solid fa-caret-down me-2 mt-1"></i>
+              </div>
+              <div class="collapse collapse-series" id="collapseSeries${i}"></div>`
+            );
+
+            // Now, add every game inside the accordion
+            gamesOfSeries.forEach((gameOfSeries, l) => {
+              createGameNavItem(`#collapseSeries${i}`, gameOfSeries, `${i}_${l}`);
+            });
+
+            // Create the collapse element initially closed up, and check if it's selected
+            var collapse = bootstrap.Collapse.getOrCreateInstance(`#collapseSeries${i}`, { toggle: false });
+            $(`#collapseSeries${i}`).toggleClass("show", isSelected);
+
+            // Add a handler for this checkbox
+            $(`#cbxSeries${i}`).on("click", function(e){
+              e.stopPropagation(); // We don't want to hit the series button underneath...
+              var songIndices = songsOfSeries.map((s) => s.index);
+              updateSelections(songIndices, this.checked);
+            });
+            
+            // Add a handler for opening and closing the series
+            $(`#btnSeries${i}`).on("click", function(){
+              var isOpen = $(`#collapseSeries${i}`).hasClass("show");
+              
+              // Try to close the series...
+              if(isOpen){
+                collapse.hide();
+                selectedSeries = selectedSeries.filter(seriesIndex => seriesIndex != i);
+                $(this).removeClass("active");
+
+              // Or try to open the series...
+              } else{
+                collapse.show();
+                selectedSeries.push(i);
+                $(this).addClass("active");
+              }
+            });
+
+
+          // If this is a standalone game...
+          } else{
+            createGameNavItem("#panelGames", game, i);
+          }
+        });
+      }
+      function createGameNavItem(panelId, game, i){
+        var isPartOfSeries = ("" + i).includes("_");
+        var songsOfGame = filteredDatabase.filter(s => s.game == game);
+        if(songsOfGame.length == 0) return; // Skip this game if we do not have any songs inside...
+
+        var songsChecked = songsOfGame.filter(s => selections.includes(s.index));
+        var checkState = songsChecked.length == 0 ? "" : (songsChecked.length >= songsOfGame.length ? "checked" : "indeterminate");
+        
+        // Append the game nav item
+        $(panelId).append(
+          `<div class="btn-game row g-0" id="btnGame${i}" data-game="${game}">
+            ${isPartOfSeries ? `<span class="col-auto me-3 opacity-25" style="margin-left: .3rem"><i class="fa-solid fa-rotate-90 fa-arrow-turn-up"></i></span>` : ""}
+            <input class="form-check-input col-auto" type="checkbox" value="" id="cbxGame${i}" ${checkState}/>
+            <span class="col ms-3">${game}</span>
+            <span class="col-auto me-4">${songsChecked.length}/${songsOfGame.length}</span>
+          </div>`
+        );
+
+        // Set the current state of the checkbox (we do it like this for the intermediate stuff)
+        if(checkState != "") $(`#cbxGame${i}`).prop(checkState, true);
+
+        // Add handlers for the inputs
+        $(`#btnGame${i}`).on("click", function(){
+          loadSongsList(songsOfGame);
+        });
+        $(`#cbxGame${i}`).on("click", function(e){
+          e.stopPropagation(); // We don't want to hit the button underneath...
+          var songIndices = filteredDatabase.filter((s) => s.game == game).map((s) => s.index);
+          updateSelections(songIndices, this.checked);
+        });
+      }
+
+      function loadSongsList(songs){
+        currentSongList = songs;
+        var games = [...new Set(songs.map(s => s.game))];
+
+        // Cleanup the panel and select the games selected for this song list
+        $("#panelSongs, #panelFanfares").empty();
+        $(".btn-game").removeClass("active");
+        $("#lbTitleSongs").text(songs.length == 0 ? "Songs view" : games.join(", "));
+        games.forEach(game => $(`.btn-game[data-game="${game}"]`).addClass("active"));
+
+        if(songs.filter((s) => s.type.toLowerCase() == "fanfare").length == 0) $("#panelFanfares").append("<div class='opacity-50'>There are no fanfares for the selected game.</div>");
+        if(songs.filter((s) => s.type.toLowerCase() != "fanfare").length == 0) $("#panelSongs").append("<div class='opacity-50'>There are no background music tracks for the selected game.</div>");
+
+        // Show the song list to the user
+        songs.sort((a, b) => a.song.localeCompare(b.song)).forEach((s, i) => {
+
+          // Get the values from the song
+          var isOOTRS = s.file.toLowerCase().endsWith(".ootrs");
+          var isFanfare = s.type.toLowerCase() == "fanfare";
+          var categories = toArray(s.categories).map((c) => 
+            `<span class="badge rounded-pill border">${isOOTRS ? c : MMCategories.toString(c)}</span>`
+          );
+          var isSelected = selections.includes(s.index);
+          var hasPreview = !! s.preview; // <-- We check if the preview exists first
+          var isDMCACritical = s.isDMCACritical ?? false;
+
+          var offsetDate = new Date();
+          offsetDate.setDate(offsetDate.getDate() - 5);
+          var isNew = Date.parse(s.creationDate) >= offsetDate;
+          var isUpdated = Date.parse(s.lastUpdateDate) >= offsetDate;
+          var badgeAppend = (isNew || isUpdated) ? ` <span class="badge text-bg-secondary">${isNew ? "New" : "Updated"}</span>` : "";
+          if(isDMCACritical) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
+
+          // LIST VIEW
+          if(isListView){
+            $(isFanfare ? "#panelFanfares" : "#panelSongs").append(
+              `<div class="col-12">
+                <div class="card btn-song ${isSelected ? "active" : ""}" id="btnSong${i}" data-song="${s.uuid}">
+                  <div class="row align-items-center g-2">
+                    <i id="btnPreview${i}" class="col-auto fa-solid fa-play ${hasPreview ? "" : "opacity-25"}" title="Preview"></i>
+                    <b class="col">${s.song}${badgeAppend}</b>
+                    <div class='metadata col'>
+                      <span><i class="fa-solid fa-music fa-fw"></i> ${toArray(s.composers).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span><br>
+                      <span><i class="fa-solid fa-wave-square fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span>
+                    </div>
+                    <div class="categories col-5">
+                      <div class="row g-0 align-items-center">
+                        <i class="col-auto fa-solid fa-tag fa-fw col-auto pt-1"></i>
+                        <div class='col mt-0'>${categories.join(" ")}</div>
+                      </div>
+                    </div>
+                    <span class="format col text-end">
+                      <i class="fa-solid fa-file-audio fa-fw"></i> <span class='opacity-50'>${isOOTRS ? "OOTRS" : "MMRS"}
+                      ${s.usesFormmask ? " formmask" : (s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla")}</span>
+                    </span>
+                    <i id="btnDownload${i}" class="col-auto fa-solid fa-download" title="Download this song"></i>
+                  </div>
+                </div>
+              </div>`
+            );
+
+          // GRID VIEW
+          } else{
+            $(isFanfare ? "#panelFanfares" : "#panelSongs").append(
+              `<div class="col-3">
+                <div class="card btn-song ${isSelected ? "active" : ""}" id="btnSong${i}" data-song="${s.uuid}">
+                  <div class="row align-items-center g-2">
+                    <b class="col">${s.song}${badgeAppend}</b>
+                    <i id="btnDownload${i}" class="col-auto fa-solid fa-download" title="Download this song"></i>
+                    <i id="btnPreview${i}" class="col-auto fa-solid fa-play ${hasPreview ? "" : "opacity-25"}" title="Preview"></i>
+                  </div>
+                  <div class='metadata border-top mt-2 pt-2'>
+                    <span><i class="fa-solid fa-music fa-fw"></i> ${toArray(s.composers).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span><br>
+                    <span><i class="fa-solid fa-wave-square fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span>
+                  </div>
+                  <div class='categories border-top mt-2 pt-2 row g-1'>
+                    <i class="fa-solid fa-tag fa-fw col-auto pt-1"></i>
+                    <div class='col mt-0'>${categories.join(" ")}</div>
+                  </div>
+                  <span class="format border-top mt-2 pt-2">
+                    <i class="fa-solid fa-file-audio fa-fw"></i> <span class='opacity-50'>${isOOTRS ? "OOTRS" : "MMRS"}
+                    ${s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla bank"}</span>
+                  </span>
+                </div>
+              </div>`
+            );
+          }
+
+          $(`#btnSong${i}`).on("click", function(){
+            if(isSelected) selections = selections.filter(sel => sel != s.index);
+            else selections.push(s.index);
+            updateSelections();
+          });
+          $(`#btnDownload${i}`).on("click", function(event){
+            event.stopPropagation();
+            downloadSingleFile(s);
+          });
+          $(`#btnPreview${i}`).on("click", function(event){
+            event.stopPropagation();
+            if(hasPreview) previewSong(s);
+          });
+        });
+
+
+        updatePanelsSelectedCount();
+        updateSongViewOptions();
+        // Check if any of the lists are empty
+        // TODO: TODOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+      }
+
+      function toArray(v){
+        if(Array.isArray(v)) return v;
+        else if(typeof v === 'string') return v.split(',').map(x => x.trim()).filter(x => x);
+        else return [];
+      }
+
+
+
+      // ------- PREVIEWS ---------
+
+      function previewSong(song){
+        var previewList = [];
+        if(song.preview instanceof Array) previewList = song.preview;
+        else previewList = [song.preview];
+        console.log(`Found ${previewList.length} preview(s) for song ${song.song}`);
+
+        // Loop on each preview and add it for play
+        previewList.forEach(preview => {
+          // If it's local, grab it from our repo!
+          if(!preview.startsWith("https://")){
+            preview = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.previews}/${song.preview}`.replaceAll("//", "/");
+          }
+
+          console.log("Playing preview... " + preview);
+          $("#lbTitleSongPreview").text(song.game + " - " + song.song);
+          $("#panelAudioPreview, #panelYouTubePreview").addClass("d-none");
+
+          // Stop the current song
+          stopPreview();
+
+          // If it's a YouTube link, we load it as an embed
+          if(preview.startsWith("https://www.youtube.com") || preview.startsWith("https://youtu.be")){
+            var regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+            var match = preview.match(regExp);
+
+            if (match && match[2].length == 11) {
+              var videoId = match[2];
+              $("#ytpSongPreview").attr("src", "https://www.youtube.com/embed/" + videoId + "?autoplay=1");
+              $("#panelYouTubePreview").removeClass("d-none");
+              
+            } else {
+              alert("An error ocurred while processing a YouTube link.\n\nThe link could be corrupted or invalid.");
+            }
+
+          } else{
+            // Load the preview
+            $("#asrcSongPreview").attr("src", preview);
+
+            // Reload the audio player
+            var audioPlayer = $("#apSongPreview")[0];
+            audioPlayer.load();
+            audioPlayer.play();
+            $("#panelAudioPreview").removeClass("d-none");
+          }
+        });
+
+        // Show the modal
+        var modalSongPreview = new bootstrap.Modal('#modalSongPreview', {});
+        modalSongPreview.show();
+      }
+      function stopPreview(){
+        $("#ytpSongPreview").attr("src", "");
+        $("#apSongPreview")[0].pause();
+      }
+
+
+
+      // ---------- SONG VIEW BUTTONS -------------
+
+      function updateSongViewOptions(){
+        $("#panelSongView").toggleClass("hide-metadata", !$("#cbxViewMetadata").is(":checked"));
+        $("#panelSongView").toggleClass("hide-categories", !$("#cbxViewCategories").is(":checked"));
+        $("#panelSongView").toggleClass("hide-format", !$("#cbxViewFormat").is(":checked"));
+      }
+      function updateSelections(indices = [], add = true){
+        // Add or remove the provided indices
+        if(indices.length > 0){
+          if(add) selections.push(...indices);
+          else selections = selections.filter((s) => !indices.includes(s));
+        }
+
+        // Make sure there is no duplicates
+        selections = [...new Set(selections)];
+
+        // Reload the lists
+        loadGamesList();
+        loadSongsList(currentSongList);
+
+        // Also update the select all
+        var allSelections = $("input[id^='cbxGame']").length;
+        var currentCheckedSelections = $("input[id^='cbxGame']:checked").length;
+        var currentIndeterminateSelections = $("input[id^='cbxGame']:indeterminate").length;
+        var checkState = (currentIndeterminateSelections + currentCheckedSelections) == 0 ? "" : (currentCheckedSelections >= allSelections ? "checked" : "indeterminate");
+        $("#cbxSelectAll").prop("checked", false).prop("indeterminate", false).prop(checkState, true);
+
+        // Update the BGM and Fanfare panel count
+        updatePanelsSelectedCount();
+
+        // Save to storage if we have the option enabled
+        if(autosaveSelections) saveSettingsToStorage();
+      }
+      function updatePanelsSelectedCount(){
+        var bgmCount = $("#panelSongView .btn-song").length;
+        var checkedBGMs = $("#panelSongView .btn-song.active").length;
+        $("#lbSelectedSongsCount").text(`${checkedBGMs}/${bgmCount} selected`);
+        var fanfareCount = $("#panelFanfares .btn-song").length;
+        var checkedFanfares = $("#panelFanfares .btn-song.active").length;
+        $("#lbSelectedFanfaresCount").text(`${checkedFanfares}/${fanfareCount} selected`);
+      }
+
+
+
+
+      // ------------- DOWNLOADS --------------
+
+      async function downloadSingleFile(song){
+        $("#loadingOverlay").removeClass("d-none");
+
+        // Fetch the single file. This is slow, but MUCH faster that bringing the full binaries zip
+        // Although, now it doesnt work... >:(
+        var fileLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.binaries}/${song.file}`.replaceAll("//", "/");
+        console.log("Downloading... [" + fileLink + "]")
+        var fileResponse = await githubFetch(fileLink);
+        if(fileResponse.ok){
+          // Finally, download the file as a blob
+          var extension = song.file.split('.').pop();
+          var blob = await fileResponse.blob();
+          saveAs(blob, `${song.game} - ${song.song}.${extension}`);
+
+        } else{
+          errorResponseToast(fileResponse);
+        }
+        $("#loadingOverlay").addClass("d-none");
+      }
+      async function downloadSongPack(){
+        console.log(selections);
+
+        // Create the archive
+        $("#loadingOverlay").removeClass("d-none");
+        var zip = new JSZip();
+
+        // Fetch the full binaries.zip file
+        var binariesLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/binaries.zip`.replaceAll("//", "/");
+        var binariesResponse = await githubFetch(binariesLink);
+        if(binariesResponse.ok){
+          var binaries = await new JSZip().loadAsync(await binariesResponse.blob());
+          // console.log(binaries);
+
+          var maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
+          var useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
+          var volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
+
+          // Loop every selection
+          for(var songIndex of selections){
+            var song = database[songIndex];
+
+            // Grab the song from our binaries file
+            var songPath = `${selectedRepo.binaries}/${song.file}`.replace("//", "/");
+            var songFile = binaries.file(songPath);
+
+            // If we can't find the file on the binaries, we skip it, but we throw an error!
+            if(!songFile){
+              errorToast(`Couldn't get file from binaries: ${songPath}`);
+              continue;
+            }
+
+            // Abbreviate the name (only if consist of multiple words!)
+            // We just pick the first letter of each word
+            // If is a number, leave it as is
+            var splittedGameName = song.game.split(/\-| /);
+            var shortGameName = splittedGameName.length == 1 ? song.game : splittedGameName.map(x => /^\d+$/.test(x) ? x : x.slice(0, 1)).join('');
+            
+            // Get the final name for the song using the options selected
+            var extension = song.file.split('.').pop();
+            var finalSongName = `${useShortGameNames ? shortGameName : song.game} - ${song.song}`
+            var fileName = `${finalSongName}.${extension}`;
+            if(maintainFolderStructure) fileName = song.file; // <- If we want to maintain the folder structure, we just return the path as it is on github
+            
+            // Iterate over every internal file...
+            var z64File = await new JSZip().loadAsync(songFile.async("blob"));
+            var internalFiles = z64File.file(/(.*?)/);
+            for(var i=0; i<internalFiles.length; i++){
+              var file = internalFiles[i];
+              
+              // Change the internal name on ootrs files (not needed for mmrs)
+              if(useShortGameNames && file.name.endsWith(".meta")){
+                var metaFile = await file.async("text");
+                var lines = metaFile.split('\n');
+                lines[0] = finalSongName; // The first line is the song name!
+                z64File.file(file.name, lines.join('\n'));
+              }
+
+              // Change the internal name on modern files (yaml metadata format)
+              if(useShortGameNames && file.name.endsWith(".metadata")){
+                // TODO: TODO: TODO <<<------------------------------------------------------------------------------------------------<
+                var metadataYaml = YAML.parse(await file.async("text"));
+                metadataYaml["metadata"]["display name"] = finalSongName;
+                z64File.file(file.name, YAML.stringify(metadataYaml));
+              }
+
+              // Modify the volume inside the seq file
+              if(volumePreAmplifying != 0 && (file.name.endsWith(".seq") || file.name.endsWith(".zseq"))){
+                // I think this requires compatibility from the browser... check if it works in others than chrome
+                var seq = await file.async("uint8array");
+                var mainVolumeCommandIndex = seq.indexOf(0xDB);
+                var mainVolume = seq[mainVolumeCommandIndex + 1];
+                var finalVolume = Math.min(Math.max(mainVolume + volumePreAmplifying, 0x0), 0xFF); // <- Clamp to 8bits
+                console.log("Main volume changed: " + mainVolume + " -> " + finalVolume);
+                seq[mainVolumeCommandIndex + 1] = finalVolume;
+                z64File.file(file.name, seq);
+              }
+            }
+            
+            // Add the file
+            //zip.file(fileName, await songFile.async("blob"));
+            console.log("Saving zip file: ", fileName);
+            zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
+
+            // Download the song from the github repository (OLD fetch version | changed because slow)
+            /*var fileLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.binaries}/${song.file}`;
+            var fileResponse = await fetch(fileLink, { cache: "no-store" });
+            console.log(fileLink);
+
+            if(fileResponse.ok){
+              // Add the thing to the archive
+              var extension = song.file.split('.').pop();
+              var fileName = `${song.game} - ${song.song}.${extension}`;
+              zip.file(fileName, await fileResponse.blob());
+            }*/
+          }
+
+        } else{
+          errorResponseToast(binariesResponse);
+        }
+
+        // We finally, download the generated zip
+        var blob = await zip.generateAsync({ type: "blob" });
+        saveAs(blob, `${selectedRepo.name} - Song Pack - ${Date.now()}.zip`);
+
+        // Also save our settings and selections and finish
+        saveSettingsToStorage();
+        $("#loadingOverlay").addClass("d-none");
+      }
+
+
+
+      // ------------ DOCUMENT READY ---------------
+
+      $(function(){
+        init();
+        $("#modalSongPreview").on("hide.bs.modal", stopPreview);
+        $("#cbxViewMetadata, #cbxViewCategories, #cbxViewFormat, #rgGithubFetchDelay").on("change", function(){
+          updateSongViewOptions();
+          saveSettings();
+        });
+        $("#btnDownloadSongPack").on("click", downloadSongPack);
+        $("#btnApplyFilters").on("click", applyFilters);
+        $("#btnResetFilters").on("click", resetFilters);
+        $("#btnAddRepository").on("click", addRepository);
+
+        $("#cbxSelectAll").on("change", function(){
+          var checkedState = this.checked;
+          // To "select all", we do it with the current applied filter, to not interfere with the other user selections
+          $(".btn-game").not(".d-none").each(function(){
+            var game = $(this).data("game");
+            var songIndices = database.filter((s) => s.game == game).map((s) => s.index);
+            if(checkedState) selections.push(...songIndices);
+            else selections = selections.filter((s) => !songIndices.includes(s));
+          });
+          updateSelections();
+        });
+
+        
+        // ----- TOP LEVEL BUTTONS -----
+        $("#btnViewRepositoryOnGithub").on("click", function(){
+          window.open(`https://github.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}`, '_blank').focus();
+        });
+        $("#btnSaveSelections").on("click", function(){
+          saveSettings(false);
+        });
+        $("#btnTheme").on("click", function(){
+          var theme = $("html").attr("data-bs-theme");
+          $("html").attr("data-bs-theme", theme == "dark" ? "light" : "dark");
+          saveSettings();
+        });
+
+        // ----- CONFIG OPTIONS -----
+        $("#cbxAutosaveSelections").on("change", function(){
+          autosaveSelections = this.checked;
+          saveSettings();
+        });
+        $("#cbxShowDMCACriticalTracks").on("change", function(){
+          showDMCACriticalTracks = this.checked;
+          saveSettings();
+          loadRepo(); // Reload repo to remove/add the DMCA critical tracks... We need this to affect exporting too!
+        });
+
+        $("#btnExportSettings").on("click", function(){
+          saveSettingsToStorage();
+          var settings = getSettings();
+          var settingsBlob = new Blob([JSON.stringify(settings)], {
+              type: 'application/json'
+          });
+          saveAs(settingsBlob, `Z64 Song Packer - Settings and selections - ${Date.now()}.z64packersettings`);
+        });
+        $("#btnImportSettings").on("click", function(){
+          $("#fileImportSettings").trigger("click");
+        });
+        $("#fileImportSettings").on("change", loadSettingsFromFile);
+        $("#btnDeleteSettings").on("click", function(){
+          deleteSettings();
+          init();
+        });
+
+        // ----- NAV OPTIONS -----
+        $("#txtSearchGames").on("input", function(){
+          loadGamesList();
+        });
+
+        $("#btnChangeSongView").on("click", function(){
+          isListView = !isListView;
+          loadSongsList(currentSongList);
+          saveSettings();
+        });
+      });
+    </script>
+
+
+
+    <!-- ------- START OF HTML -------- -->
+    
+    <div id="loadingOverlay" class="loading-overlay d-none">
+      <i class="fa-solid fa-spinner fa-spin-pulse fa-3x"></i>
+    </div>
+
+    <nav class="navbar navbar-expand-lg bg-body-tertiary" style="padding-left: 8px; height: 46.5px;">
+      <a class="navbar-brand text-secondary me-2" href="#">Z64 Song Packer</a>
+      <span class="mx-1 opacity-25">|</span>
+
+      <ul class="navbar-nav mb-2 mb-lg-0">
+        <li class="nav-item">
+          <a class="nav-link" aria-current="page" href="submission_form.html" target="_blank">
+            <i class="fa-solid fa-plus me-2"></i>Submit a song
+          </a>
+        </li>
+        <span class="mx-1 pt-2 opacity-25">|</span>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fa-solid fa-book-open me-2"></i>Resources
+          </a>
+          <ul class="dropdown-menu">
+            <li><h6 class="dropdown-header pb-1">Guides for Ocarina of Time Randomizer</h6></li>
+            <li><a class="dropdown-item" target="_blank" href="https://gist.github.com/TheSoundDefense/128c933b629e972835afb25692f9cc2d">Creating music files</a></li>
+            <li><a class="dropdown-item" target="_blank" href="https://gist.github.com/owlisnotacat1/e5445c154b46a9d7804b139800dfffbe">Creating a custom instrument bank</a></li>
+            <li><a class="dropdown-item" target="_blank" href="https://gist.github.com/CristobalPenaloza/923ffc436c248d3d89dbe87a4059e6bb">Vanilla instrument sets and ranges</a></li>
+            
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header pb-1">Guides for Majora's Mask Randomizer</h6></li>
+            <li><a class="dropdown-item" target="_blank" href="https://github.com/isghj5/mm-rando/wiki/MMR-Music-Adding-and-Creation-Instructions">Music adding and creation instructions</a></li>
+            <li><a class="dropdown-item" target="_blank" href="https://github.com/isghj5/mm-rando/wiki/Custom-Instrument-Set-Creation">Custom instrument set creation</a></li>
+            <li><a class="dropdown-item" target="_blank" href="https://github.com/isghj5/mm-rando/wiki/Instrument-Sample-Injection">Instrument sample injection</a></li>
+            <li><a class="dropdown-item" target="_blank" href="https://github.com/isghj5/mm-rando/wiki/Advanced-MMR-Music-Configuration">SEQS.txt configuration</a></li>
+            <li><a class="dropdown-item" target="_blank" href="https://github.com/isghj5/mm-rando/wiki/MM-Vanilla-Instrument-Reference">Vanilla instrument reference</a></li>
+            
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header pb-1">Tools</h6></li>
+            <li><a class="dropdown-item" href="https://github.com/CristobalPenaloza/Z64MusicManager" target="_blank">Z64 Music Manager</a></li>
+            <li><a class="dropdown-item" href="https://github.com/owlisnotacat1/Sf2-OoT-parser" target="_blank">SF2 to OoT Parser</a></li>
+            <li><a class="dropdown-item" href="https://github.com/leggettc18/SequenceOTRizer" target="_blank">Sequence OTRizer (Ship of Harkirian)</a></li>
+          
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header pb-1">Community</h6></li>
+            <li><a class="dropdown-item" href="https://discord.gg/EVpd499gkS" target="_blank">Darunia's Joy Discord</a></li>
+            <li><a class="dropdown-item" href="https://discord.gg/8qbreUM" target="_blank">MM Randomizer Discord #music-discussions</a></li>
+            <li><a class="dropdown-item" href="https://discord.gg/4QdtPBP6wf" target="_blank">OoTMM Combo Randomizer Discord #music-development</a></li>
+          
+          </ul>
+        </li>
+      </ul>
+
+      <div class="ms-auto">
+        <button type="button" id="btnSearch" class="btn btn-search px-3" data-bs-toggle="modal" data-bs-target="#modalFilter">
+          <i class="fa-solid fa-search me-1"></i>
+          <span class="me-1">Search this repository</span>
+        </button>
+      </div>
+      <div class="ms-2 me-auto">
+        <div class="nav-item dropdown col-auto ms-auto">
+          <button id="btnDownload" type="button" class="btn btn-search px-3" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+            <i class="fa-solid fa-download me-1"></i>
+            <span class="me-1">Download song pack</span>
+          </button>
+          <ul class="dropdown-menu pb-0">
+            <li><h6 class="dropdown-header">Export options:</h6></li>
+            <li>
+              <div class="form-check form-check-inline ms-3">
+                <input class="form-check-input" type="checkbox" id="cbxMaintainFolderStructure">
+                <label class="form-check-label" for="cbxMaintainFolderStructure">Maintain folder structure</label>
+              </div>
+            </li>
+            <li>
+              <div class="form-check form-check-inline ms-3">
+                <input class="form-check-input" type="checkbox" id="cbxUseShortGameNames">
+                <label class="form-check-label" for="cbxUseShortGameNames">Use short game names</label>
+              </div>
+            </li>
+            <hr class="my-2">
+            <li><h6 class="dropdown-header">Volume pre-amplifying:</h6></li>
+            <li>
+              <div class="px-3 row">
+                <div class="col">
+                  <input type="range" class="form-range" min="-100" max="100" step="1" id="rgVolumePreAmplifying" list="dtVolumePreAmplifying"
+                    oninput="$('#lbVolumePreAmplifying').text((parseInt(this.value) > 0 ? '+' : '') + this.value)">
+                  <datalist id="dtVolumePreAmplifying">
+                    <option value="-100" label="-100"></option>
+                    <option value="0" label="0"></option>
+                    <option value="100" label="+100"></option>
+                  </datalist>
+                </div>
+                <span class="col-auto ps-0" style="width: 50px;" id="lbVolumePreAmplifying">0</span>
+              </div>
+            </li>
+
+            <hr class="mt-2 mb-0">
+            <li>
+              <a class="dropdown-item active rounded-bottom py-2" href="#" id="btnDownloadSongPack">
+                <i class="fa-solid fa-download"></i> Download song pack <span class="opacity-50">| ZIP</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+      
+      <button type="button" data-bs-toggle="modal" data-bs-target="#modalRepoSelection" class="btn border-0 px-2">
+        <div class="row g-2">
+          <img id="imgRepoAvatar" class="rounded-circle ml-3 col-auto" width="24" height="24" src="https://github.githubassets.com/images/gravatars/gravatar-user-420.png?size=32" />
+          <b class="col mb-0"><span id="lbRepoName">Z64 Test Repo</span> <i class="fa-solid fa-caret-down"></i></b>
+        </div>
+      </button>
+      <span class="mx-1 opacity-25">|</span>
+
+      <i class="fa-brands fa-lg fa-github nav-link ms-2 mt-1" style="cursor: pointer;" title="View repository on GitHub" id="btnViewRepositoryOnGithub"></i>
+      <i class="fa-solid fa-lg fa-save nav-link ms-3 mt-1" style="cursor: pointer;" title="Save selections" id="btnSaveSelections"></i>
+      <i class="fa-solid fa-lg fa-moon nav-link ms-3 mt-1" style="cursor: pointer;" title="Theme" id="btnTheme"></i>
+      <div class="nav-item dropdown col-auto">
+        <button class="btn btn-link nav-link mx-3" style="margin-top: 1px;" title="Configuration" id="btnConfiguration" data-bs-toggle="dropdown"
+          data-bs-auto-close="outside" aria-expanded="false">
+          <i class="fa-solid fa-lg fa-cog"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end pb-3" style="min-width: 400px">
+          <li><h6 class="dropdown-header">Configuration:</h6></li>
+          <li>
+            <div class="form-check form-check-inline ms-3">
+              <input class="form-check-input" type="checkbox" id="cbxAutosaveSelections">
+              <label class="form-check-label" for="cbxAutosaveSelections">Autosave selections</label>
+              <p class="hint">This saves your selections on the browser's local storage everytime you make a change. This can be taxing to your browser! Disable it if you are experiencing slowdowns.</p>
+            </div>
+          </li>
+          <li>
+            <div class="form-check form-check-inline ms-3">
+              <input class="form-check-input" type="checkbox" id="cbxShowDMCACriticalTracks">
+              <label class="form-check-label" for="cbxShowDMCACriticalTracks">Show DMCA critical tracks</label>
+              <p class="hint">Those tracks are not stream safe, and could produce DMCA claims. Don't use them if you plan on monetizing your content! Maintain this option disabled if you want to be on the safe side.</p>
+            </div>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <div class="form-group mx-3">
+              <div class="row g-3">
+                <div class="col-auto">
+                  <label class="form-label col-form-label" for="rgGithubFetchDelay">GitHub fetch delay:</label>
+                </div>
+                <div class="col pt-2">
+                  <input type="range" class="form-range" id="rgGithubFetchDelay" min="0.25" max="2" step="0.05"
+                    oninput="$('#lbGithubFetchDelay').text(Number(this.value).toFixed(2) + ' sec.')">
+                </div>
+                <span class="col-auto pt-2" style="width: 80px;" id="lbGithubFetchDelay">1.25 sec.</span>
+              </div>
+              <p class="hint">This adds an artificial delay (in seconds) to every request made to GitHub, to prevent issues with their rate limit. You can reduce it to increase the speed and responsiveness of the packer, with the added risk of getting "Too Many Requests (429)" errors.</p>
+            </div>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+          <li><h6 class="dropdown-header">Export/Import settings and selections:</h6></li>
+          <li>
+            <div class="row mx-2">
+              <button type="button" id="btnExportSettings" class="btn btn-search col ms-2 me-1">
+                <i class="fas fa-download me-2"></i>Export settings
+              </button>
+              <button type="button" id="btnImportSettings" class="btn btn-search col ms-1 me-2">
+                <i class="fas fa-upload me-2"></i>Import settings
+              </button>
+              <input type="file" id="fileImportSettings" accept=".z64packersettings" hidden>
+            </div>
+          </li>
+          <li class="text-center pt-3">
+            <button type="button" id="btnDeleteSettings" class="btn btn-outline-danger mx-3">
+              <i class="fas fa-trash me-2"></i>Delete settings
+            </button>
+          </li>
+          <li class="text-center pt-4">
+            <p class="opacity-25 lh-sm mb-0">Made with ❤️ for the<br>OoT & MM randomizer communities</span>
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <div class="container mt-3">
+      <div class="row g-3">
+        <div class="col-12 d-none" id="panelErrorView">
+          <div class="card bg-danger-subtle text-center text-danger-emphasis py-3">
+            <i class="fa-solid fa-exclamation-triangle opacity-75 fa-2x mb-2"></i>
+            <h5 class="mb-2 px-3">There was an error loading the repository</i></h5>
+            <p class="opacity-75 mb-0" id="lbErrorDescription">Error description</p>
+          </div>
+        </div>
+
+        <div class="col-4 d-none" id="panelGameView">
+          <div class="card bg-body-tertiary py-3">
+            <div class="row align-items-center g-0 px-3 pb-3 border-bottom">
+              <input class="form-check-input col-auto mt-0" type="checkbox" id="cbxSelectAll"/>
+
+              <div class="col mx-2 search-input">
+                <input type="text" id="txtSearchGames" placeholder="Games list" class="px-2">
+              </div>
+            </div>
+            <div id="panelGames" class="overflow-y-auto overflow-x-hidden" style="height: calc(100vh - 46.5px - 6.8rem)">
+    
+            </div>
+          </div>
+        </div>
+  
+        <div class="col-8 d-none" id="panelSongView">
+          <div class="card bg-body-tertiary py-3">
+            <h5 class="mb-0 border-bottom px-3 pb-3" id="lbTitleSongs">Songs view</h5>
+
+            <div id="panelSongViewOptions" class="border-bottom py-2 px-3">
+              <div class="row">
+                <div class="col">
+                  <div class="form-check form-check-inline form-switch">
+                    <input class="form-check-input" type="checkbox" id="cbxViewMetadata">
+                    <label class="form-check-label" for="cbxViewMetadata">Show composers/converters</label>
+                  </div>
+    
+                  <div class="form-check form-check-inline form-switch">
+                    <input class="form-check-input" type="checkbox" id="cbxViewCategories">
+                    <label class="form-check-label" for="cbxViewCategories">Show categories</label>
+                  </div>
+    
+                  <div class="form-check form-check-inline form-switch">
+                    <input class="form-check-input" type="checkbox" id="cbxViewFormat" checked>
+                    <label class="form-check-label" for="cbxViewFormat">Show file format</label>
+                  </div>
+                </div>
+
+                <i title="Change song view" id="btnChangeSongView" class="fa-solid fa-lg fa-list nav-link pe-2 col-auto" style="cursor: pointer; padding-top: 13px;"></i>
+              </div>
+              
+            </div>
+            <div class="overflow-y-auto overflow-x-hidden" style="height: calc(100vh - 46.5px - 9.4rem)">
+              <div id="panelSongView">
+                <div class="sv-collapse row mb-0 ps-3 py-3" data-bs-toggle="collapse" data-bs-target="#panelSongs">
+                  <h5 class="col mb-0">Background Music (BGMs)</h5>
+                  <span class="col-auto" id="lbSelectedSongsCount">0/0 selected</span>
+                  <i class="col-auto fa-solid fa-caret-down me-3 mt-1"></i>
+                </div>
+                <div id="panelSongs" class="row px-3 pt-2 pb-3 g-2 mt-0 collapse show"></div>
+                
+                <hr class="my-0">
+                <div class="sv-collapse row mb-0 ps-3 py-3" data-bs-toggle="collapse" data-bs-target="#panelFanfares">
+                  <h5 class="col mb-0">Fanfares</h5>
+                  <span class="col-auto" id="lbSelectedFanfaresCount">0/0 selected</span>
+                  <i class="col-auto fa-solid fa-caret-down me-3 mt-1"></i>
+                </div>
+                <div id="panelFanfares" class="row px-3 pt-2 pb-3 g-2 mt-0 collapse show"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+
+    <!-- MODAL FILTER -->
+    <div class="modal fade" id="modalFilter" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h1 class="modal-title fs-5">Search this repository</h1>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body row g-3">
+            <div class="form-group col-md-6 mb-3">
+              <label>Game name:</label>
+              <input id="txtFilterGameName" type="text" class="form-control"/>
+            </div>
+            <div class="form-group col-md-6 mb-3">
+              <label>Song name:</label>
+              <input id="txtFilterSongName" type="text" class="form-control" />
+            </div>
+
+            <div class="form-group col-md-6 mb-3">
+              <label>Sequence type:</label>
+              <select id="ddlFilterSequenceType" class="form-select">
+                <option value="">Any</option>
+                <option value="bgm">Background music</option>
+                <option value="fanfare">Fanfare</option>
+              </select>
+            </div>
+            <div class="form-group col-md-6 mb-3">
+              <label>Music groups:</label>
+              <select id="ddlFilterMusicGroups" class="form-select">
+                <option value="">Any</option>
+              </select>
+            </div>
+
+            <div class="form-group col-md-6 mb-3">
+              <label>Composers:</label>
+              <select id="ddlFilterComposers" class="form-select">
+                <option value="">Any</option>
+              </select>
+            </div>
+            <div class="form-group col-md-6 mb-3">
+              <label>Converters:</label>
+              <select id="ddlFilterConverters" class="form-select">
+                <option value="">Any</option>
+              </select>
+            </div>
+
+            <div class="form-group col-12 mb-3">
+              <label>Format:</label>
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="cbxFilterVanillaBank" checked>
+                <label class="form-check-label" for="cbxFilterVanillaBank">Uses vanilla bank only</label>
+              </div>
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="cbxFilterCustomBank" checked>
+                <label class="form-check-label" for="cbxFilterCustomBank">Uses a custom bank</label>
+              </div>
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="cbxFilterCustomSamples" checked>
+                <label class="form-check-label" for="cbxFilterCustomSamples">Uses a custom bank and samples</label>
+              </div>
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="cbxFilterFormmask" checked>
+                <label class="form-check-label" for="cbxFilterFormmask">Uses formmask (MM only)</label>
+              </div>
+            </div>
+
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-primary me-auto" id="btnResetFilters">Reset filters</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="btnApplyFilters">Apply filters</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+
+    <!-- REPO SELECT -->
+    <div class="modal fade" id="modalRepoSelection" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h1 class="modal-title fs-5">Select a repository</h1>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="text-center" id="panelRepoSelection"></div>
+            <hr>
+            <div id="panelAddRepo">
+              <h6 class="opacity-50">Add a repository:</h6>
+              <div class="input-group">
+                <input type="text" id="txtAddRepository" class="form-control" placeholder="E.g.: DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0" />
+                <button type="button" class="btn input-group-text btn-search px-3" id="btnAddRepository">Add</button>
+              </div>
+              
+              <small class="opacity-25">Use a Z64 repository link to add that repo to the packer. The repository owner should provide you a link in a valid format (Owner/Repository/branch).</small>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- SONG PREVIEW -->
+    <div class="modal fade" id="modalSongPreview" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h1 class="modal-title fs-5" id="lbTitleSongPreview">Preview</h1>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body text-center">
+            <div id="panelAudioPreview">
+              <audio controls autoplay id="apSongPreview">
+                <source src="" type="audio/mpeg" id="asrcSongPreview">
+              </audio>
+            </div>
+            
+            <div id="panelYouTubePreview" class="responsive-iframe">
+              <iframe id="ytpSongPreview" type="text/html" width="100%" height="auto" src="" frameborder="0"></iframe>
+            </div>
+            
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3">
+      <div id="toast" class="toast align-items-center bg-primary-subtle text-primary-emphasis"
+        role="alert" aria-live="assertive" aria-atomic="true" style="width: 500px !important">
+        <div class="d-flex">
+          <div class="toast-body" id="toastBody" style="word-break: break-word"></div>
+          <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+      </div>
+    </div>
+
+
+  </body>
+</html>

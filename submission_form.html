@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html data-bs-theme="dark">
+  <head>
+    <title>Z64 Submission Form</title>
+
+    <!-- CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+
+    <!-- JQuery -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
+    <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/themes/smoothness/jquery-ui.css" />
+    <script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
+
+    <!-- Other stuff -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.alphanum/1.0.24/jquery.alphanum.min.js"></script>
+    <script src="js/typeahead.bundle.js"></script>
+  </head>
+  <body>
+    <style>
+      .loading-overlay {
+        position: fixed;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        color: var(--bs-primary-text-emphasis);
+        background-color: rgba(24, 24, 24, .6);
+        z-index: 5600;
+      }
+      .loading-overlay i{
+        position: absolute;
+        top: 47%;
+        left: 47%;
+      }
+      label{
+        margin-bottom: .1rem;
+      }
+      .hint{
+        padding: 0;
+        margin: 0;
+        margin-bottom: .25rem;
+        font-size: 80%;
+        opacity: .5;
+      }
+
+
+      .tt-hint{
+        opacity: .4 !important;
+      }
+      .tt-menu{
+        width: 100%;
+        background-color: var(--bs-body-bg);
+        border: var(--bs-card-border-width) solid var(--bs-primary-text-emphasis);
+        padding: .5rem;
+        border-radius: var(--bs-border-radius);
+        margin-top: .25rem;
+      }
+      .tt-suggestion{
+        padding: .25rem;
+      }
+      .tt-suggestion.tt-cursor, .tt-suggestion:hover{
+        background-color: var(--bs-primary);
+        color: white;
+        cursor: pointer;
+      }
+      .twitter-typeahead {
+        width: 100%;
+      }
+
+      .custom-invalid-feedback{
+        width: 100%;
+        margin-top: .25rem;
+        font-size: .875em;
+        color: var(--bs-form-invalid-color);
+        display: none;
+      }
+    </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "@popperjs/core": "https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/esm/popper.min.js",
+      "bootstrap": "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.esm.min.js",
+      "yaml": "https://cdn.jsdelivr.net/npm/yaml@2.8.0/browser/index.min.js"
+    }
+  }
+  </script>
+    <script type="module">
+      import { Octokit, App } from "https://esm.sh/octokit";
+      import { retry } from "https://esm.sh/@octokit/plugin-retry";
+      import { throttling } from "https://esm.sh/@octokit/plugin-throttling";
+      import { restEndpointMethods } from "https://esm.sh/@octokit/plugin-rest-endpoint-methods";
+      import * as bootstrap from "bootstrap";
+      import { MMCategories } from "./js/mmcategories.js";
+      import YAML from 'yaml';
+
+      var authToken = "";
+      var fileBase64 = "";
+      var previewBase64 = "";
+      var previewFormat = "";
+      const supportedPreviewFormats = ["mp3", "ogg"]
+
+      // Info about the user:
+      var username = "";
+      var fullName = "";
+      var email = "";
+      var avatarUrl = "";
+
+      // Valid repos of the user:
+      var repos = [];
+      var selectedRepo = null;
+      var database = [];
+      var databaseSha = "";
+
+      // Modifying:
+      var songToEdit = undefined;
+
+      // Custom octokit to prevent error, abuses, and rate limiting
+      const MyOctokit = Octokit.plugin(retry, throttling);
+      function buildOctokit(){
+        var octokit = new MyOctokit({
+          auth: authToken,
+          throttle: {
+            onRateLimit: (retryAfter, options) => {
+              octokit.log.warn(
+                `Request quota exhausted for request ${options.method} ${options.url}`,
+              );
+
+              // Retry twice after hitting a rate limit error, then give up
+              if (options.request.retryCount <= 2) {
+                // only retries once
+                octokit.log.info(`Retrying after ${retryAfter} seconds!`);
+                return true;
+              }
+            },
+            onSecondaryRateLimit: (retryAfter, options, octokit) => {
+              // does not retry, only logs a warning
+              octokit.log.warn(
+                `Secondary quota detected for request ${options.method} ${options.url}`,
+              );
+            },
+          },
+          retry: {
+            doNotRetry: ["429"],
+          },
+        });
+        return octokit;
+      }
+
+      async function userLogin(){
+        authToken = $("#txtGithubAuthToken").val();
+        await loadRepoSelection();
+      }
+
+      async function loadRepoSelection(){
+        try {
+          // We put an overlay to prevent more user action
+          $("#loadingOverlay").removeClass("d-none");
+
+          // TODO: SEPARATE THIS METHOD IN TWO PARTS, SO WE CAN GO BACK ONE STEP!!!
+          // Get the token the user put
+          
+          const octokit = buildOctokit();
+
+          // Get the username of this token
+          var user = await octokit.request('GET /user');
+          username = user.data.login;
+          fullName = user.data.name;
+          email = user.data.email;
+          avatarUrl = user.data.avatar_url;
+
+          // Do a cleanup
+          repos = [];
+          $("#containerRepo").empty();
+
+          // Load the user info
+          $("#niAvatar").removeClass("d-none");
+          $("#imgAvatar").prop("src", avatarUrl);
+          $("#niUsername").removeClass("d-none");
+          $("#lbUsername").text(username);
+
+          // Get their repos
+          var allRepos = await octokit.request('GET /users/{username}/repos', {
+            username: username,
+          });
+          
+          // Check all the repos to see which one are a z64 repo
+          await Promise.all(allRepos.data.map(async (repo) => {
+
+            // If it's a fork, query the original repo
+            var originalRepoOwner = repo.owner.login;
+            var originalRepoAvatarUrl = avatarUrl;
+            if(repo.fork){
+              var originalRepo = await octokit.request('GET /repos/{owner}/{repo}', {
+                owner: repo.owner.login,
+                repo: repo.name
+              });
+              originalRepoOwner = originalRepo.data.parent.owner.login;
+              originalRepoAvatarUrl = originalRepo.data.parent.owner.avatar_url;
+            }
+
+            // Try to get the z64musicpacker.properties file from the original repo
+            // We don't use raw.githubusercontent.com, since it has a cache delay of 300 seconds (5 mins) that can cause issues
+            var response = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+              owner: originalRepoOwner,
+              repo: repo.name,
+              path: "z64packer/z64musicpacker.properties",
+              request: { retries: 0 }
+            }).catch((error) => { });
+
+            // If we do not find it, try to search on a secondary branch
+            if(response === undefined){
+              var response = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+                owner: originalRepoOwner,
+                repo: repo.name,
+                path: "z64musicpacker.properties",
+                ref: "z64packer",
+                request: { retries: 0 }
+              }).catch((error) => { });
+            }
+            
+            // If we find a z64musicpacker.properties file, this is a compatible repo!
+            if(response !== undefined){
+              // Read the file
+              var properties = JSON.parse(decodeURIComponent(escape(atob(response.data.content))));
+
+              // Load the repo into our list
+              repos.push({
+                repoId: repo.id,
+                repoName: repo.name,
+                repoUrl: repo.url,
+                repoDefaultBranch: repo.default_branch,
+                repoIsFork: repo.fork, // <-- Make this tool also available for repo owners
+
+                originalRepoOwner: originalRepoOwner,
+                originalRepoAvatarUrl: originalRepoAvatarUrl,
+
+                // Import Z64 music packer properties
+                ...properties,
+              });
+            }
+          }));
+
+          // Check if we have z64 fork repos available
+          if(repos.length == 0){
+            errorToast("No Z64 fork repos found for this account! See the guide on this page on how to create a fork for one.");
+            $("#loadingOverlay").addClass("d-none");
+            return;
+
+          } else{
+            // Add the repos as buttons
+            repos.forEach((repo, i) => {
+              $("#containerRepo").append(
+                `<button type="button" class="btn btn-outline-light w-100 mb-3" id="btnSelectRepo${i}">
+                  <div class="row">
+                    <img class="rounded-circle ml-3 col-auto" width="45" height="45" src="${repo.originalRepoAvatarUrl}" />
+                    <div class="col text-start">
+                      <h5 class="mb-0">${repo.name}</h5>
+                      <span class="opacity-500">${repo.description}</span>
+                    </div>
+                  </div>
+                </button>`
+              );
+              $(`#btnSelectRepo${i}`).on("click", function(){
+                selectRepo(repo);
+              });
+            });
+
+            // Once we finish, we change form and stop the loading
+            $("#loadingOverlay").addClass("d-none");
+            $("#panelAuthorization").addClass("d-none");
+            $("#panelRepoSelection").removeClass("d-none");
+            $("#panelSubmissionDetails").addClass("d-none");
+          }
+
+          // If we catch an error, show it to the user
+          // TODO: USE A MORE USER-FRIENDLY WAY TO SHOW THE ERROR
+        } catch(e){
+          $("#loadingOverlay").addClass("d-none");
+          errorToast(e);
+        }
+      }
+      async function selectRepo(repo){
+        selectedRepo = repo;
+        $("#loadingOverlay").removeClass("d-none");
+
+        // Try to sync the repo and collect the database... we need it for the form
+        var err = await syncRepoAndGetLatestDatabase();
+        if(err != null){
+          errorToast(err);
+
+        } else{
+          // We synced and got the db! Now we load the form
+          $("#panelRepoSelection").addClass("d-none");
+          $("#panelSubmissionDetails").removeClass("d-none");
+          clearFullSubmissionForm();
+        }
+
+        $("#imgRepoAvatar").attr("src", repo.originalRepoAvatarUrl);
+        $("#lbRepoName").text(repo.name);
+        $("#loadingOverlay").addClass("d-none");
+      }
+      async function syncRepoAndGetLatestDatabase(){
+        const octokit = buildOctokit();
+        var error = null;
+        database = [];
+
+        // First, if the current repo is a fork, we try to sync to the latest commit
+        if(selectedRepo.repoIsFork){
+          var syncResponse = await octokit.request('POST /repos/{owner}/{repo}/merge-upstream', {
+            owner: username,
+            repo: selectedRepo.repoName,
+            branch: selectedRepo.repoDefaultBranch
+          }).catch((err) =>{
+            error = `Couldn't sync fork to the latest commit: ${err}`;
+          });
+          if(syncResponse === undefined) return error;
+        }
+        
+        
+        // Collect the database json file
+        var dbResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+          owner: username,
+          repo: selectedRepo.repoName,
+          path: "z64packer/z64songs.json"
+        }).catch((err) => {
+          error = `Couldn't get the song database from the repo: ${err}`;
+        });
+        if(dbResponse === undefined) return error;
+
+        // Load the database
+        try{
+          database = JSON.parse(decodeURIComponent(escape(atob(dbResponse.data.content))));
+          databaseSha = dbResponse.data.sha;
+
+        } catch(e){
+          return `Couldn't process song database, it could be corrupted: ${e}.\n\nThe process cannot continue.`;
+        }
+        
+
+        // Also try to get the games database, although is not required and it could be outdated
+        var gamesDatabase = database.map((d) => d.game);
+        var gamesDbResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+          owner: username,
+          repo: selectedRepo.repoName,
+          path: "z64packer/z64games.json"
+        }).catch((err) => {
+          error = `Couldn't get the games database from the repo: ${err}`;
+        });
+        if(gamesDbResponse !== undefined) {
+          gamesDatabase.push(...JSON.parse(decodeURIComponent(escape(atob(gamesDbResponse.data.content)))).map((d) => d.game));
+        }
+
+
+        // Now that we are loaded, fill up the required forms
+        var games = new Bloodhound({
+          datumTokenizer: Bloodhound.tokenizers.whitespace,
+          queryTokenizer: Bloodhound.tokenizers.whitespace,
+          local: [...new Set(gamesDatabase)],
+        });
+        $("#txtGameName").typeahead("destroy");
+        $("#txtGameName").typeahead({
+          hint: true,
+          highlight: true, /* Enable substring highlighting */
+          minLength: 1, /* Specify minimum characters required for showing suggestions */
+        }, {
+          name: 'games',
+          source: games,
+        });
+
+        // Also fill the song selector for modifying purposes
+        var songs = new Bloodhound({
+          datumTokenizer: Bloodhound.tokenizers.whitespace,
+          queryTokenizer: Bloodhound.tokenizers.whitespace,
+          local: [...new Set(database.map((d) => d.game + " | " + d.song))],
+        });
+        $("#txtSongSelect").typeahead("destroy");
+        $("#txtSongSelect").typeahead({
+          hint: true,
+          highlight: true,
+          minLength: 1,
+        }, {
+          name: 'songs',
+          source: songs,
+        });
+
+        //toast("Database loaded!");
+      }
+
+
+      async function selectSongToModify(){
+        // First, obtain the selected song
+        var fullName = $("#txtSongSelect").val().split(" | ");
+        if(fullName.length != 2){
+          errorToast("Not a valid song selected");
+          return;
+        }
+        songToEdit = database.find(v => v.game == fullName[0] && v.song == fullName[1]);
+        if(songToEdit == undefined){
+          errorToast("The selected song is not in the repo!");
+          return;
+        }
+
+        // Now that we got our song, fill the form with it
+        $("#txtGameName").val(songToEdit.game);
+        $("#txtSongName").val(songToEdit.song);
+        $("#txtComposers").val(toArray(songToEdit.composers).join(", "));
+        $("#txtConverters").val(toArray(songToEdit.converters).join(", "));
+        $("#cbxIsDMCACritical").prop('checked', songToEdit.isDMCACritical ? true : false);
+
+        // Also select the preview file
+        var previewType = ((songToEdit.preview ?? "") == "") ? "" : (songToEdit.preview.startsWith("https://") ? "link" : "file");
+        $("#ddlPreviewType").val(previewType);
+        $("#ddlPreviewType").trigger("change");
+        if(previewType == "link") $("#txtPreviewLink").val(songToEdit.preview);
+
+        // Also, make fileUpload optional, when we only want to modify metadata and not the file itself
+        $("#fileUpload")[0].required = false;
+        $("#mainForm").removeClass("d-none");
+      }
+
+
+      async function processFile(event) {
+        // Read the file as a zip file
+        // https://stuk.github.io/jszip/documentation/api_jszip.html
+        try{
+          $("#loadingOverlay").removeClass("d-none");
+          var file = event.target.files[0];
+          fileBase64 = (await toBase64(file)).split(",").pop();
+
+          // Open the file as a zip
+          var zip = new JSZip();
+          zip.loadAsync(file).then(function(zip) {
+
+            // If it's not a valid file, we just stop the process here
+            var ootrs = file.name.endsWith(".ootrs");
+            if(!ootrs && !file.name.endsWith(".mmrs")) {
+              errorToast("Not a valid z64 file (ootrs, mmrs)");
+              $("#fileUpload").val("");
+              $("#pInformationFromFile").addClass("d-none");
+              return;
+            }
+            
+            var usesCustomBank = false;
+            var usesCustomSamples = false;
+            var usesFormmask = false;
+            var isLegacyFormat = true;
+
+            // Run over each file and extract data
+            zip.forEach(function(path, file) {
+
+              // Read the OOTRS-only meta file
+              if(ootrs && path.endsWith(".meta")){
+                file.async("text").then(function(text) {
+                  var lines = text.split("\n");
+                  lines.forEach((line, i) => {
+                    switch(i){
+                      case 0: $("#lbInternalName").text(line); break;
+                      case 2: $("#lbSongType").text((line || "bgm").toLowerCase()); break; // <-- By default, songs without this line are bgm
+                      case 3: $("#lbMusicGroups").text(line); break;
+                    }
+                  });
+                });
+              }
+
+              // Read the MMRS-only categories file
+              if(!ootrs && path == "categories.txt"){
+                file.async("text").then(function(text) {
+                  var categories = text.replaceAll('-', ','); // <-- Normalize separator
+                  $("#lbMusicGroups").text(categories);
+
+                  // Detect if the categories are correctly mapped
+                  // TODO: THESE ARE NOT ALL THE CATEGORIES THERE ARE... ADD AN UTILITY CLASS FOR THIS STUFF
+                  var catArray = categories.split(',');
+                  var isFanfare = catArray.every(cat => MMCategories.isFanfare(cat));
+                  var isBgm = catArray.every(cat => MMCategories.isBgm(cat));
+                  console.log(catArray + ' ' + isFanfare + '  ' + isBgm);
+                  if(isFanfare) $("#lbSongType").text("fanfare");
+                  else if(isBgm) $("#lbSongType").text("bgm");
+                  else {
+                    // This song has mixed categories! We cannot accept it...
+                    errorToast(`This file has missing or mixed bgm and fanfare categories!\nFix the categories.txt file so they ONLY has bgm or ONLY fanfare categories.`);
+                    clearFileInput();
+                  }
+                });
+              }
+
+              // Read the universal metadata yaml file
+              if(path.endsWith(".metadata")){
+                file.async("text").then(function(text) {
+                  var metadataYaml = YAML.parse(text);
+                  var metadata = metadataYaml["metadata"];
+                  console.log(metadata);
+
+                  $("#lbInternalName").text(metadata["display name"])
+                  $("#lbSongType").text(metadata["song type"].toLowerCase());
+                  $("#lbMusicGroups").text(metadata["music groups"].join(","));
+                  usesFormmask = (metadataYaml["formmask"] ?? []).length > 0;
+                  isLegacyFormat = false;
+                });
+              }
+
+              // Check custom bank and samples
+              if(path.endsWith(".zbank")) usesCustomBank = true;
+              if(path.endsWith(".zsound")) usesCustomSamples = true;
+              if(path.endsWith(".formmask")) usesFormmask = true;
+            });
+            
+            // Load the info for both file types
+            $("#lbFormat").text(ootrs ? "OOTRS" : "MMRS");
+            $("#lbUsesCustomBank").text(usesCustomBank ? "Yes" : "No");
+            $("#lbUsesCustomSamples").text(usesCustomSamples ? "Yes" : "No");
+            $("#lbUsesFormmask").text(usesFormmask ? "Yes" : "No");
+            $("#lbIsLegacyFormat").text(isLegacyFormat ? "Yes" : "No");
+
+            // Toggle the info only for each file type
+            // TODO: REMOVE, NO LONGER NEEDED!
+            //$("#lbOOTRSOnlyInfo").toggleClass("d-none", !ootrs);
+            //$("#lbMMRSOnlyInfo").toggleClass("d-none", ootrs);
+
+            // Show the information
+            $("#pInformationFromFile").removeClass("d-none");
+
+            // TODO: LOAD THE FORM IN THE CORRECT FORMAT (ootrs or mmrs)
+            // If needed tho... Probably not...
+
+            
+          // File doesn't have the zip format
+          }, function() {
+            errorToast("Not a valid zip file");
+            clearFileInput();
+          });
+
+        } catch(e){
+          errorToast(`Couldn't process the file: ${e}`);
+          clearFileInput();
+
+        } finally{
+          $("#loadingOverlay").addClass("d-none");
+        }
+      }
+      function clearFileInput(){
+        fileBase64 = "";
+        $("#pInformationFromFile").addClass("d-none");
+        $("#fileUpload").val("");
+        $("#loadingOverlay").addClass("d-none");
+      }
+      const toBase64 = file => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+      });
+
+
+      // ----- PREVIEW FILE PROCESSING -----
+      async function processPreviewFile(){
+        try{
+          $("#loadingOverlay").removeClass("d-none");
+          var file = event.target.files[0];
+          previewBase64 = (await toBase64(file)).split(",").pop();
+          previewFormat = file.name.split(".").pop().toLowerCase();
+
+          // If it's a compatible file, finish!
+          if(supportedPreviewFormats.includes(previewFormat)){
+            $("#loadingOverlay").addClass("d-none");
+
+          // If it's NOT a compatible file, then thrown an error
+          } else{
+            errorToast(`This preview file format (${previewFormat}) is not supported!`);
+            clearPreviewInput();
+          }
+
+        } catch(e){
+          errorToast(`Couldn't process the preview file: ${e}`);
+          clearPreviewInput();
+        }
+      }
+      function clearPreviewInput(){
+        previewBase64 = "";
+        previewFormat = "";
+        $("#filePreview").val("");
+        $("#loadingOverlay").addClass("d-none");
+      }
+
+
+      // ----- CLEARING -----
+      async function syncRepoAndClearForm(){
+        $("#loadingOverlay").removeClass("d-none");
+        await syncRepoAndGetLatestDatabase();
+        clearFullSubmissionForm();
+        $("#loadingOverlay").addClass("d-none");
+      }
+      function clearFullSubmissionForm(){
+        $("input[name=rbSubmissionType]").prop('checked', false);
+        $("#mainForm, #panelSongSelect, #panelResults").addClass("d-none");
+        $("#preMainForm").removeClass("d-none");
+        clearForm();
+      }
+      function clearForm(){
+        clearFileInput();
+        $("#txtGameName").val("");
+        $("#txtSongName").val("");
+        $("#txtComposers").val("");
+        $("#txtConverters").val("");
+        $("#cbxIsDMCACritical").prop('checked', false);
+        $("#ddlPreviewType").val("");
+        $("#txtPreviewLink").val("");
+        clearPreviewInput();
+        $("#ddlPreviewType").trigger("change");
+        $("#txtNotes").val("");
+        $("#mainForm").removeClass("was-validated");
+
+        // Edit cleanings
+        $("#txtSongSelect").val("");
+        $("#fileUpload")[0].required = true;
+        songToEdit = undefined;
+      }
+
+
+      // ----- FINISH SUBMISSION -----
+      async function submitForm(){
+
+        // Check if the form is valid first
+        var form = $("#mainForm")[0];
+        var formIsValid = form.checkValidity();
+        $("#mainForm").addClass("was-validated");
+
+        // Custom validators
+        $("#txtSongName, #txtGameName").trigger("input");
+        
+        // Perform a vanilla check and a custom validation check
+        if(!formIsValid || $("#mainForm").find(".is-invalid").length > 0) return;
+        
+
+        // Open octokit and trigger the overlay
+        const octokit = buildOctokit();
+        $("#loadingOverlay").removeClass("d-none");
+
+        // Get the latest database
+        // Is this new one required?
+        var syncError = await syncRepoAndGetLatestDatabase();
+        if(syncError != null){
+          errorToast(syncError);
+          $("#loadingOverlay").addClass("d-none");
+          return;
+        }
+
+        // CHECK IF WE ARE IN EDIT MODE
+        var editMode = songToEdit != undefined;
+        var originalFilePath = songToEdit?.file;
+        var originalPreviewPath = songToEdit?.preview;
+        var ootrs = $("#lbFormat").text() == "OOTRS";
+
+        // Create the new entry
+        // If we are editing, just grab the existing entry
+        var entry = songToEdit;
+
+        // Add an identifier if we are creating a new entry
+        if(!editMode){
+          entry = {};
+          entry.uuid = crypto.randomUUID(); // <-- uuid v4
+          entry.creationDate = new Date().toISOString(); // <-- We use unix utc for consistency... everyone has different timezones!
+
+        } else{
+          entry.lastUpdateDate = new Date().toISOString();
+        }
+
+        entry.game = $("#txtGameName").val();
+        entry.song = $("#txtSongName").val();
+        entry.composers = toArray($("#txtComposers").val());
+        entry.converters = toArray($("#txtConverters").val());
+        entry.isDMCACritical = $("#cbxIsDMCACritical").is(":checked");
+
+        // Remove any reserved characters from the path, so we can create a valid tree after
+        var unsafeCharacters = /[\\\/:*?"<>|]/g
+        var safeFilePath = entry.game.replace(unsafeCharacters, "") + "/" + entry.song.replace(unsafeCharacters, "");
+
+        // If we have a file selected... update the path
+        if(fileBase64.length > 0){
+          entry.type = $("#lbSongType").val();
+          entry.categories = toArray($("#lbMusicGroups").text());
+          entry.usesCustomBank = $("#lbUsesCustomBank").text() == "Yes";
+          entry.usesCustomSamples = $("#lbUsesCustomSamples").text() == "Yes";
+          if(!ootrs) entry.usesFormmask = $("#lbUsesFormmask").text() == "Yes";
+
+          // Generate a local path for the entry
+          var extension = $("#lbFormat").text().toLowerCase();
+          entry.file = safeFilePath + "." + extension;
+        }
+
+        // Add/modify the preview link/file
+        // entry.preview = "";
+        if($("#ddlPreviewType").val() == "link") entry.preview = $("#txtPreviewLink").val();
+        else if(previewBase64.length > 0){
+          // Generate a local path for the preview and upload it as a commit
+          entry.preview = safeFilePath + "." + previewFormat;
+          var previewCommitResult = await commitFileToRepo(octokit, previewBase64, selectedRepo.previews, originalPreviewPath, entry.preview);
+          if(!previewCommitResult) return;
+        }
+
+        // Add this entry to the json file
+        if(editMode){
+          var entryIndex = database.findIndex(d => d.uuid == entry.uuid);
+          database[entryIndex] = entry;
+
+        } else{
+          database.push(entry);
+        }
+
+        // If we have a file selected, upload it as a new commit
+        var fileCommitResult = await commitFileToRepo(octokit, fileBase64, selectedRepo.binaries, originalFilePath, entry.file);
+        if(!fileCommitResult) return;
+
+        // Update the database
+        var updateDatabaseResult = await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+          owner: username,
+          repo: selectedRepo.repoName,
+          path: "z64packer/z64songs.json",
+          message: `${editMode ? "Modify" : "Add"} entry in database for file ${entry.file}`,
+          content: btoa(unescape(encodeURIComponent(JSON.stringify(database, null, 2)))), // <- We add spaces for readability for maintainers
+          sha: databaseSha
+          
+        }).catch((err) => {
+          errorToast(`Couldn't update song database on the repo: ${err}`);
+        });
+        if(updateDatabaseResult === undefined) {
+          $("#loadingOverlay").addClass("d-none");
+          return;
+        }
+
+
+        // Do a pull request with the newly added files
+        // We only do this on forks to allow compatibility for repo owners to also use the submission form
+        if(selectedRepo.repoIsFork){
+
+          // We create a title and comment for this new entry
+          var additionalNotes = $("#txtNotes").val();
+          var title = `${editMode ? "Modify" : "Add new"} song: ${entry.game} - ${entry.song}`;
+          var comment = `\`\`\`\n${JSON.stringify(entry, null, '\t')}\n\`\`\``;
+
+          // Check if a pull request is already up for this repo
+          var currentPRResult = await octokit.request('GET /repos/{owner}/{repo}/pulls', {
+            owner: selectedRepo.originalRepoOwner,
+            repo: selectedRepo.repoName,
+            state: "open",
+            head: username + ":" + selectedRepo.repoDefaultBranch,
+
+          }).catch((err) => {
+            errorToast(`Couldn't fetch current pull requests from repository: ${err}`);
+          });
+          if(currentPRResult === undefined) {
+            $("#loadingOverlay").addClass("d-none");
+            return;
+          }
+
+          // Get the PR number if exists
+          var prNumber = 0;
+          var noCurrentPR = currentPRResult.data.length == 0;
+          if(!noCurrentPR) prNumber = currentPRResult.data[0].number;
+          
+
+          // TODO: CHECK IF THERE IS ACTUALLY NO ALTERNATIVE TO THIS <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+          // ...
+
+          // If we are using a classic token, then we can create the PR here!
+          if(authToken.startsWith("ghp_")){
+          //if(true){
+            // If there is no current PR, we add a new one
+            if(noCurrentPR){
+              var pullRequestResult = await octokit.request('POST /repos/{owner}/{repo}/pulls', {
+                owner: selectedRepo.originalRepoOwner,
+                repo: selectedRepo.repoName,
+                title: title,
+                body: comment,
+                head: username + ":" + selectedRepo.repoDefaultBranch, // <-- We only do to the main branch... I could implement it for selected branches tho
+                base: selectedRepo.repoDefaultBranch,
+
+              }).catch((err) => {
+                errorToast(`Couldn't create a pull request: ${err}`);
+              });
+              if(pullRequestResult === undefined) {
+                $("#loadingOverlay").addClass("d-none");
+                return;
+              }
+
+              // Get the new PR number!
+              console.log("CREATE PULL REQUEST RESULT:");
+              console.log(pullRequestResult);
+              prNumber = pullRequestResult.data.number;
+
+            // If there IS an already opened PR, just add a comment to go in par with the just recently made commit
+            } else{
+              var commentResult = await octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                owner: selectedRepo.originalRepoOwner,
+                repo: selectedRepo.repoName,
+                issue_number: prNumber,
+                body: comment,
+
+              }).catch((err) => {
+                errorToast(`Couldn't comment on the already created pull request: ${err}`);
+              });
+              if(commentResult === undefined) {
+                $("#loadingOverlay").addClass("d-none");
+                return;
+              };
+            }
+
+          // If we are using a fine grained PAT, then the PR needs to be created manually!
+          } else{
+            // ... nothing to do here
+          }
+
+          // If we have a PR already open, then we are good to go!
+          if(prNumber > 0){
+            $("#btnViewCurrentPullRequest").attr("href", `https://github.com/${selectedRepo.originalRepoOwner}/${selectedRepo.repoName}/pull/${prNumber}`);
+            $("#btnCreateNewPullRequest, #pCreateNewPullRequest").addClass("d-none");
+            $("#btnViewCurrentPullRequest, #pViewCurrentPullRequest").removeClass("d-none");
+
+          // If there's no PR, then prompt the user to create it manually
+          } else{
+            $("#btnCreateNewPullRequest").attr("href", `https://github.com/${selectedRepo.originalRepoOwner}/${selectedRepo.repoName}/compare/${selectedRepo.repoDefaultBranch}...${username}:${selectedRepo.repoName}:${selectedRepo.repoDefaultBranch}?expand=1`);
+            $("#btnCreateNewPullRequest, #pCreateNewPullRequest").removeClass("d-none");
+            $("#btnViewCurrentPullRequest, #pViewCurrentPullRequest").addClass("d-none");
+            $("#txtPullRequestTitle").text(title);
+            $("#txtPullRequestDescription").text(comment);
+          }
+
+          // Show the results panel
+          clearFullSubmissionForm();
+          $("#panelResults").removeClass("d-none");
+          $("#loadingOverlay, #preMainForm").addClass("d-none");
+          successToast("Process completed!");
+
+        // If this is our repository, then manually trigger the database fixer for consistency
+        // For forks, this process is automated by Github Actions on every merge
+        } else{
+          // This throws an 403 forbidden error... we need more privileges, but that won't do
+          // I think it will be better to just trigger this somehow with a workflow
+          var dispatchResult = await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+            owner: selectedRepo.originalRepoOwner,
+            repo: selectedRepo.repoName,
+            workflow_id: 'z64_database_fixer.yml',
+            ref: selectedRepo.repoDefaultBranch,
+
+          }).catch((err) => {
+            errorToast(`There was an error triggering Database Fixer workflow: ${err}`);
+          });
+
+          console.log("WORKFLOW DISPATCH RESULT:");
+          console.log(dispatchResult);
+
+          // For owners just a toast is enough... We have no PRs to create or show
+          await syncRepoAndGetLatestDatabase();
+          clearFullSubmissionForm();
+          $("#loadingOverlay").addClass("d-none");
+          successToast("Process completed! Triggering Database Fixer workflow!");
+        }
+      }
+      async function commitFileToRepo(octokit, fileBase64, folder, originalPath, finalPath){
+        if(fileBase64.length > 0){
+          // If we are editing, get the file SHA we are trying to edit
+          var fileSha = null;
+          var editMode = (originalPath ?? "") != "";
+          if(editMode){
+            var getFileResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+              owner: username,
+              repo: selectedRepo.repoName,
+              path: folder + originalPath,
+            }).catch((err) => {
+              err = `Couldn't get original file from the repo: ${err}`;
+            });
+            if(getFileResponse === undefined) {
+              $("#loadingOverlay").addClass("d-none");
+              return false;
+            }
+            fileSha = getFileResponse.data.sha;
+
+            // If the filename will be different, then delete the original file for a clean replacement
+            // WE HAVE TO DO THIS, since the unique names are needed to prevent duplication or overwrites
+            if((folder + originalPath) != (folder + finalPath)){
+              var deleteFileResponse = await octokit.request('DELETE /repos/{owner}/{repo}/contents/{path}', {
+                owner: username,
+                repo: selectedRepo.repoName,
+                path: folder + originalPath,
+                message: `Delete file ${originalPath} for replacement`,
+                sha: fileSha,
+              }).catch((err) => {
+                err = `Couldn't delete original file from the repo: ${err}`;
+              });
+              if(deleteFileResponse === undefined){
+                $("#loadingOverlay").addClass("d-none");
+                return false;
+              }
+              fileSha = null; // <-- Reset the sha, since we will be creating a new file
+            }
+          }
+
+          // Finally, add or update the file
+          var uploadFileResult = await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+            owner: username,
+            repo: selectedRepo.repoName,
+            path: folder + finalPath,
+            message: `${editMode ? "Modify" : "Add new"} file ${finalPath}`,
+            content: fileBase64,
+            sha: fileSha,
+          }).catch((err) => {
+            errorToast(`Couldn't upload the new file (${finalPath}) to the repo: ${err}`);
+          });
+          if(uploadFileResult === undefined) {
+            $("#loadingOverlay").addClass("d-none");
+            return false;
+          }
+        }
+        return true;
+      }
+
+
+
+      // ----- UTILS -----
+      // TODO: CHANGE STYLE FOR ERROR TOASTS
+      function successToast(message){
+        toast(message, "bg-success text-white", true);
+      }
+      function errorToast(message){
+        toast(message, "bg-danger text-white", false);
+      }
+      function toast(message, styleClass = "bg-primary-subtle text-primary-emphasis", autohide = true){
+        var t = bootstrap.Toast.getOrCreateInstance($("#toast")[0], {
+          autohide: autohide
+        });
+        $("#toast").attr("class", "toast align-items-center " + styleClass);
+        $("#toastBody").text(message);
+        t.show();
+      }
+      function toArray(v){
+        if(Array.isArray(v)) return v;
+        else if(typeof v === 'string') return v.split(',').map(x => x.trim()).filter(x => x);
+        else return [];
+      }
+
+
+      // ----- DOCUMENT READY -----
+      $(function(){
+        // Submit mappings
+        $("#btnLogin").on("click", userLogin);
+        $("#btnSubmissionDetailsBack").on("click", loadRepoSelection);
+        $("#btnSongSelect").on("click", selectSongToModify);
+        $("#btnSubmit").on("click", submitForm);
+        
+        // We don't want to trigger an actual submit, since we don't have any backend
+        $("#mainForm").on("submit", function(e){
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        
+        // Form events
+        $("#fileUpload").on("change", processFile);
+        $("#txtGameName, #txtSongName").alphanum({
+          allow: "!@#$%^&()+=[]\';,{}~`.- _:", // We allow all character accepted as filenames
+          // ALSO ALLOW ':' since it's used frequently on game names! We strip it afterwards
+          //disallow: '\\/:*?"<>|',
+        });
+        
+        $("input[name='rbSubmissionType']").on("change", function(){
+          clearForm();
+          $("#mainForm").toggleClass("d-none", this.value != "new");
+          $("#panelSongSelect").toggleClass("d-none", this.value != "edit");
+        });
+
+        $("#txtSongName, #txtGameName").on("input", function(){
+          var game = $("#txtGameName").val();
+          var song = $("#txtSongName").val();
+          if(!game || !song){
+            $("#txtSongName, #txtGameName").each(function(){ this.setCustomValidity("invalid"); });
+            $("#txtSongName").siblings(".invalid-feedback").html(`Please insert a game and name for the song.`);
+            return;
+          }
+
+          // Check if is NOT songtest
+          var isSongtest = (game + " - " + song).toLowerCase().includes("songtest");
+          if(isSongtest){
+            $("#txtSongName, #txtGameName").each(function(){ this.setCustomValidity("invalid"); });
+            $("#txtSongName").siblings(".invalid-feedback").html(`The name of the game or song CANNOT contain the string <b>"songtest"</b>.`);
+            return;
+          }
+
+          // Check if is duplicated
+          // Ignore this requirement if we are editing an already existing song
+          var isInDB = database.some(s => s.game == game && s.song == song);
+          var isDuplicate = isInDB && (songToEdit != undefined ? !(songToEdit.game == game && songToEdit.song == song) : true)
+
+          $("#txtSongName, #txtGameName").each(function(){ this.setCustomValidity(isDuplicate ? "invalid" : ""); });
+          $("#txtSongName").siblings(".invalid-feedback").html(`<b>This song is already in this repo!</b><br>
+                If this is another version of the song, add something to differentiate it, like "Flock Step (Tolin version)".<br>
+                If you are trying to modify an existing song, use the "Modify/update an existing song" button above.`);
+        });
+        
+
+        // Preview stuffs
+        $("#ddlPreviewType").on("change", function(){
+          $("#fgPreviewLink").toggleClass("d-none", this.value != "link");
+          $("#txtPreviewLink")[0].required = this.value == "link";
+          $("#fgPreviewFile").toggleClass("d-none", this.value != "file");
+          $("#filePreview")[0].required = songToEdit == undefined && this.value == "file"; // We allow optionals if we are editing to maintain the original file
+        });
+        $("#filePreview").on("change", processPreviewFile);
+
+        // Result bindings
+        $("#txtPullRequestTitle, #txtPullRequestDescription").on("click", function(){
+          var range = document.createRange();
+          range.selectNode($(this)[0]);
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(range);
+
+          navigator.clipboard.writeText($(this).text());
+          toast("Text copied to clipboard!");
+        });
+
+        $("#btnModifyAnotherSong").on("click", syncRepoAndClearForm);
+      });
+    </script>
+
+
+    <div id="loadingOverlay" class="loading-overlay d-none">
+      <i class="fa-solid fa-spinner fa-spin-pulse fa-3x"></i>
+    </div>
+
+    <nav class="navbar navbar-expand-lg bg-body-tertiary" style="padding-left: 8px; height: 46.5px;">
+      <a class="navbar-brand text-secondary" style="width: 242px" href="#">
+        Z64 Submission Form
+      </a>
+      
+      <div class="col"></div>
+
+      <div class="col-auto ml-auto d-none" id="niUsername">
+        Logged as <b id="lbUsername">...</b>
+      </div>
+
+      <div class="col-auto px-2 d-none" id="niAvatar">
+        <img id="imgAvatar" class="rounded-circle bg-white" width="30" height="30" src="" />
+      </div>
+    </nav>
+
+    <div class="container">
+      <div class="row justify-content-md-center pt-3 pb-5">
+
+        <!-- AUTHORIZATION -->
+        <div class="card bg-body-tertiary col p-3" style="max-width: 500px;" id="panelAuthorization">
+          <h5>Welcome to Z64 Submission Form!</h5>
+          <p>This is a tool for uploading custom Zelda 64 sequences to music repositories for the randomizer use.</p>
+          <p class="opacity-50">If you just want to download songs, go to the <a target="_blank" href="index.html">Z64 Song Packer</a>.</p>
+
+          <hr>
+
+
+          <div class="form-group mb-3">
+            <label>GitHub authorization token:</label>
+            <p class="hint">The token with access to the fork of the repository you are trying to send this file.</p>
+            <input type="password" id="txtGithubAuthToken" class="form-control" placeholder="github_pat_xxxxx... or ghp_xxxxx..." />
+          </div>
+          <p class="opacity-50">Don't know how to get an authorization token?<br>Then you need to see <a target=”_blank” href="https://github.com/CristobalPenaloza/cristobalpenaloza.github.io/wiki/Submitting-a-song-to-a-Z64-repository">this guide</a>!</p>
+
+          <button type="button" class="btn btn-primary" id="btnLogin">Login</button>
+        </div>
+
+
+        <!-- SELECT A REPO -->
+        <div class="card bg-body-tertiary col p-3 d-none" style="max-width: 500px;" id="panelRepoSelection">
+          <h5>Select a repository</h5>
+          <p>Select the repository you will be submitting a new music track.</p>
+          <div class="container" id="containerRepo">
+          </div>
+
+          <p class="opacity-50">Can't see the repository you want to upload your song?<br>Then you need to see <a target=”_blank” href="https://github.com/CristobalPenaloza/cristobalpenaloza.github.io/wiki/Submitting-a-song-to-a-Z64-repository#2-fork-the-music-repository">this guide</a>, in the "Fork the music repository" section.</p>
+        </div>
+
+
+        <!-- SUBMISSION DETAILS -->
+        <div class="card bg-body-tertiary col p-0 g-3 d-none" style="max-width: 500px;" id="panelSubmissionDetails">
+          
+          <div class="row g-0 py-2 align-items-center border-bottom bg-primary-subtle rounded-top">
+            <i class="col-auto fa-solid fa-lg fa-arrow-left me-auto ms-3" style="cursor: pointer" id="btnSubmissionDetailsBack"></i>
+            <img class="col-auto rounded-circle bg-white" id="imgRepoAvatar" width="30" height="30" src="" />
+            <h5 class="col-auto ps-2 pe-3 mb-0 me-auto" id="lbRepoName"></h5>
+          </div>
+
+          <div id="preMainForm" class="p-3">
+            <h5>Submission details</h5>
+            <p>Select what type of submission you want to do:</p>
+  
+            <div class="row g-0">
+              <div class="p-3 col me-2 border rounded">
+                <div class="row g-0">
+                  <input class="form-check-input col-auto" type="radio" name="rbSubmissionType" id="rbSubmissionTypeNew" value="new">
+                  <label class="form-check-label col ps-3" for="rbSubmissionTypeNew">
+                    <b>Upload</b> a new song not in the repo
+                  </label>
+                </div>
+              </div>
+              <div class="p-3 col ms-2 border rounded">
+                <div class="row g-0">
+                  <input class="form-check-input col-auto" type="radio" name="rbSubmissionType" id="rbSubmissionTypeEdit" value="edit">
+                  <label class="form-check-label col ps-3" for="rbSubmissionTypeEdit">
+                    <b>Modify/update</b> an existing song
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="panelSongSelect" class="d-none p-3">
+            <div class="form-group mb-3">
+              <label>Song to modify:</label>
+              <p class="hint">The name of the song you're trying to modify.</p>
+              <input id="txtSongSelect" type="text" class="form-control" placeholder="Write here the name of the song..." />
+            </div>
+
+            <button id="btnSongSelect" type="button" class="btn btn-primary w-100">
+              <i class="fa-solid fa-edit me-2"></i>Select this song
+            </button>
+          </div>
+
+          <!--TODO: Add typeahead for choosing the existing track on edit mode-->
+
+          <form id="mainForm" class="d-none needs-validation p-3 pt-0">
+            <div class="form-group mb-3">
+              <label>File:</label>
+              <p class="hint">The z64 song file you are uploading (ootrs, mmrs). If you are only editing the metadata of an existing track, you can leave this input empty to not make any changes to the already uploaded file.</p>
+              <input id="fileUpload" type="file" class="form-control" accept=".ootrs,.mmrs" required/>
+              <p class="opacity-600 mb-0 d-none" id="pInformationFromFile">
+                Information extracted from the file:<br>
+                <span class="opacity-50">• Format:</span> <b id="lbFormat">...</b><br>
+                <span class="opacity-50">• Type:</span> <b id="lbSongType">...</b><br><!--bgm or fanfare-->
+                <span class="opacity-50">• Internal name:</span> <b id="lbInternalName">...</b><br>
+                <span class="opacity-50">• Music groups/categories:</span> <b id="lbMusicGroups">...</b><br>
+                <span class="opacity-50">• Uses custom bank:</span> <b id="lbUsesCustomBank">...</b><br>
+                <span class="opacity-50">• Uses custom samples:</span> <b id="lbUsesCustomSamples">...</b><br>
+                <span class="opacity-50">• Uses formmask:</span> <b id="lbUsesFormmask">...</b><br>
+                <span class="opacity-50">• Is legacy format:</span> <b id="lbIsLegacyFormat">...</b>
+              </p>
+              <div class="invalid-feedback">
+                A valid file is needed for upload.
+              </div>
+            </div>
+  
+            <hr>
+  
+            <div class="form-group mb-3">
+              <label>Game name:</label>
+              <p class="hint">The name of the game your song comes from. Use the full name, not an abbreviation.</p>
+              <input id="txtGameName" type="text" class="form-control" placeholder="E.g.: Rhythm Heaven Fever" />
+            </div>
+  
+            <!--TODO: Make sure in new mode, we are not using an existing track's name-->
+            <div class="form-group mb-3">
+              <label>Song name:</label>
+              <p class="hint">The actual name of the song.</p>
+              <input id="txtSongName" type="text" class="form-control" placeholder="E.g.: Flock Step" />
+              <div class="invalid-feedback">
+                Please insert a game and name for the song.
+              </div>
+            </div>
+
+            <!-- TODO: Implement this on future... Right now it may be difficult to do, because we have to prevent name duplication. -->
+            <!-- Maybe we could do an abreviated GAME name, and let the name of the song be. Eg. Super Mario Galaxy to SMG, etc... -->
+            <!--<div class="form-group mb-3">
+              <label>Short display name:</label>
+              <p class="hint">
+                An alternative very short name for the song, only 28 characters long.<br>
+                This name could be used for 
+              </p>
+              <input id="txtDisplayName" type="text" class="form-control" placeholder="E.g.: SMG-RosalinaObservatory" maxlength="28" />
+            </div>-->
+  
+            <hr>
+  
+            <div class="form-group mb-3">
+              <label>Composer(s):</label>
+              <p class="hint">A list of the names of the original composers of this song.<br>List multiple composer separated by comma.</p>
+              <input id="txtComposers" type="text" class="form-control" placeholder="E.g.: Tsunku♂" required />
+              <div class="invalid-feedback">
+                Please insert at least one composer. Google is your best friend here. If you can't seem to find one, use "Unknown".
+              </div>
+            </div>
+  
+            <div class="form-group mb-3">
+              <label>Converter(s):</label>
+              <p class="hint">A list of the names of ones who converted this song to the Zelda 64 format.<br>List multiple converters separated by comma.</p>
+              <input id="txtConverters" type="text" class="form-control" placeholder="E.g.: Tolin" required />
+              <div class="invalid-feedback">
+                Please insert at least one converter. Your name should be here.
+              </div>
+            </div>
+
+            <hr>
+            
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="cbxIsDMCACritical">
+              <label class="form-check-label" for="cbxIsDMCACritical">
+                Is DMCA critical?
+              </label>
+              <p class="hint">
+                If this track could cause DMCA related issues, then it's EXTREMELY IMPORTART to check this box so it can be filtered accordingly.
+              </p>
+            </div>
+  
+            <hr>
+
+            <!-- BEWARE - THIS COULD NOT BE UPLOADED BECAUSE THE SELECT IS KINDA FINICKY -->
+            <div class="form-group mb-3">
+              <label>Preview:</label>
+              <select id="ddlPreviewType" class="form-select" required>
+                <option value="">Select a preview type...</option>
+                <option value="link">YouTube link / Sound file link</option>
+                <option value="file">Direct file upload</option>
+              </select>
+              <div class="invalid-feedback">
+                A preview is needed.
+              </div>
+            </div>
+  
+            <div class="form-group mb-3" id="fgPreviewLink">
+              <label>Preview link:</label>
+              <p class="hint">
+                Link to a preview of this song. Can it be on two formats:<br>
+                <b>• YouTube link:</b> a link to a video uploaded to YouTube of your version of the song.<br>
+                <b>• Direct sound file link:</b> a direct link to a sound file (.mp3, .wav, etc) uploaded on a public site (Internet Archive, GitHub, etc).
+              </p>
+              <input id="txtPreviewLink" type="text" class="form-control" pattern="https?://.+" required />
+              <div class="invalid-feedback">
+                A valid preview link is required. Must be <b>https://</b>
+              </div>
+            </div>
+
+            <div id="fgPreviewFile">
+              <label>Preview file:</label>
+              <p class="hint">The preview sound file of your track. <b>Only MP3 and OGG files are allowed.</b> If you are only editing the metadata of an existing track, you can leave this input empty to not make any changes to the already uploaded preview file.</p>
+              <input id="filePreview" type="file" class="form-control" accept=".mp3,.ogg" required/>
+              <div class="invalid-feedback">
+                A valid supported file is required.
+              </div>
+            </div>
+            
+            <hr>
+  
+            <div class="form-group mb-3">
+              <label>Notes:</label>
+              <p class="hint">
+                Additional notes for the people handling your submission.
+              </p>
+              <input id="txtNotes" type="text" class="form-control" />
+            </div>
+  
+            <button id="btnSubmit" type="submit" class="btn btn-primary w-100">
+              <i class="fa-solid fa-paper-plane me-2"></i>Submit
+            </button>
+          </form>
+
+          <div id="panelResults" class="p-3">
+            <h5>Submission process completed!</h5>
+            <hr>
+            <div id="pCreateNewPullRequest">
+              <p>
+                <b>But you're not done yet!</b><br>
+                Now you have to <i>create a pull request</i>.
+              </p>
+              <ol>
+                <li class="mb-3">Press the button below to open the GitHub pull request form in a new tab.</li>
+                <li class="mb-3">
+                  Paste the following text on their respective fields (you can click to copy):<br>
+                  <div class="form-group my-2">
+                    <label>Title:</label>
+                    <span id="txtPullRequestTitle" class="form-control">An example title</span>
+                  </div>
+                  <div class="form-group">
+                    <label>Description:</label>
+                    <span id="txtPullRequestDescription" class="form-control">An example description</span>
+                  </div>
+                </li>
+                <li class="mb-3">Finally, press the green button <b><i>Create pull request</i></b>.</li>
+              </ol>
+              <p>And with that, you're actually done!<p>
+            </div>
+            
+            <p id="pViewCurrentPullRequest"><b>You're done!</b> The pull request is ready, so sit tight until a verifier checks your submission. You can press the button below to go to GitHub and view your current pull request.</p>
+            <p class="opacity-50">Take into consideration that your submission, once approved, can take <i>up to 5 minutes</i> to be reflected on the packer.</p>
+
+            <a id="btnCreateNewPullRequest" href="#" target="_blank" class="btn btn-primary w-100 mb-2">
+              <i class="fa-solid fa-code-pull-request me-2"></i><span>Create new pull request</span>
+            </a>
+
+            <a id="btnViewCurrentPullRequest" href="#" target="_blank" class="btn btn-primary w-100 mb-2">
+              <i class="fa-solid fa-code-pull-request me-2"></i><span>View current pull request</span>
+            </a>
+
+            <button id="btnModifyAnotherSong" type="button" class="btn w-100">
+              <i class="fa-solid fa-edit me-2"></i>Upload/modify another song
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+      <div id="toast" class="toast align-items-center bg-primary-subtle text-primary-emphasis" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+          <div class="toast-body" id="toastBody">
+            Hello, world! This is a toast message.
+          </div>
+          <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+      </div>
+    </div>
+    
+  </body>
+</html>

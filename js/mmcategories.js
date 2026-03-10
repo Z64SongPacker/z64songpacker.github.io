@@ -1,13 +1,13 @@
 
 export class MMCategories {
   static isBgm(id){
-    return Object.keys({...this.generalBgm, ...this.specificBgm}).includes(id);
+    return Object.keys({...this.generalBgm, ...this.specificBgm}).includes(id.toUpperCase());
   }
   static isFanfare(id){
-    return Object.keys({...this.generalFanfare, ...this.specificFanfare}).includes(id);
+    return Object.keys({...this.generalFanfare, ...this.specificFanfare}).includes(id.toUpperCase());
   }
   static toString(id){
-    return this.all[id];
+    return this.all[id.toUpperCase()];
   }
 
   static get all(){

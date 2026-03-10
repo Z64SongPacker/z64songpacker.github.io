@@ -472,14 +472,21 @@
                   $("#lbMusicGroups").text(categories);
 
                   // Detect if the categories are correctly mapped
-                  // TODO: THESE ARE NOT ALL THE CATEGORIES THERE ARE... ADD AN UTILITY CLASS FOR THIS STUFF
                   var catArray = categories.split(',');
-                  var isFanfare = catArray.every(cat => MMCategories.isFanfare(cat));
-                  var isBgm = catArray.every(cat => MMCategories.isBgm(cat));
+                  var isFanfare = catArray.every(cat => {
+                    //console.log(`${cat} isFanfare: ${MMCategories.isFanfare(cat)}`);
+                    return MMCategories.isFanfare(cat);
+                  });
+                  var isBgm = catArray.every(cat => {
+                    //console.log(`${cat} isBgm: ${MMCategories.isBgm(cat)}`);
+                    return MMCategories.isBgm(cat);
+                  });
+
                   console.log(catArray + ' ' + isFanfare + '  ' + isBgm);
                   if(isFanfare) $("#lbSongType").text("fanfare");
                   else if(isBgm) $("#lbSongType").text("bgm");
                   else {
+                    console.log(`isFanfare ${isFanfare} | isBgm ${isBgm}`)
                     // This song has mixed categories! We cannot accept it...
                     errorToast(`This file has missing or mixed bgm and fanfare categories!\nFix the categories.txt file so they ONLY has bgm or ONLY fanfare categories.`);
                     clearFileInput();
@@ -680,7 +687,7 @@
 
         // If we have a file selected... update the path
         if(fileBase64.length > 0){
-          entry.type = $("#lbSongType").val();
+          entry.type = $("#lbSongType").text();
           entry.categories = toArray($("#lbMusicGroups").text());
           entry.usesCustomBank = $("#lbUsesCustomBank").text() == "Yes";
           entry.usesCustomSamples = $("#lbUsesCustomSamples").text() == "Yes";

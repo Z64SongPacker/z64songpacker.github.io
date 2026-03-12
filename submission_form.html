@@ -966,9 +966,10 @@
         // Form events
         $("#fileUpload").on("change", processFile);
         $("#txtGameName, #txtSongName").alphanum({
-          allow: "!@#$%^&()+=[]\';,{}~`.- _:", // We allow all character accepted as filenames
+          allow: "!@#$%^&()+=[]\';,{}~`.- _:/", // We allow all character accepted as filenames
           // ALSO ALLOW ':' since it's used frequently on game names! We strip it afterwards
-          //disallow: '\\/:*?"<>|',
+          // ALSO ALLOW '/' since plenty of japanese devs like to use it >:I
+          // disallow: '\\/:*?"<>|',
         });
         
         $("input[name='rbSubmissionType']").on("change", function(){

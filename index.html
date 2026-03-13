@@ -444,7 +444,7 @@
 
 
       async function loadRepo(){
-        try{
+        //try{
           $("#loadingOverlay").removeClass("d-none");
           $("#panelErrorView, #panelSongView, #panelGameView").addClass("d-none");
 
@@ -460,10 +460,12 @@
           database = [];
 
           // Get the optional games database from the current repo
+          console.log("Loading games database...");
           var gamesDbLink = rawLink + "z64games.json";
           var gamesDbResponse = await githubFetch(gamesDbLink);
           if(gamesDbResponse.ok){
-            gamesDb = await gamesDbResponse.json();
+            // Filter any unwanted values
+            gamesDb = (await gamesDbResponse.json()).filter((g) => typeof(g) == "object");
 
           } else{
             loadErrorView(gamesDbResponse);
@@ -471,18 +473,21 @@
           }
 
           // Get the database from the current repo
+          console.log("Loading songs database...");
           var dbLink = rawLink + "z64songs.json";
           var dbResponse = await githubFetch(dbLink);
           if(dbResponse.ok){
             // Load the database | IMMEDIATLY filter DMCA-critical tracks, we don't want any surprises!
-            database = (await dbResponse.json()).filter((s) => showDMCACriticalTracks ? true : (s.isDMCACritical ?? false) == false);
+            database = (await dbResponse.json()).filter((s) => typeof(s) == "object" && (showDMCACriticalTracks ? true : (s.isDMCACritical ?? false) == false));
             database.forEach((item, i) => {
               // We will use an index to map quickly. But when we want to export/import, we will use the uuid.
+              if(typeof(item) == "string") return;
               item.index = i;
             });
             filteredDatabase = database;
 
             // Get the saved selections
+            console.log("Loading settings and user selections...");
             selections = [];
             var settings = getSettings();
             var userRepo = settings.userRepos.find(r => r.id == selectedRepo.repoId);
@@ -536,9 +541,9 @@
             loadErrorView(dbResponse);
             return;
           }
-        } catch(e){
-          loadErrorViewWithMessage("An unknown error has ocurred: " + e);
-        }
+        //} catch(e){
+        //  loadErrorViewWithMessage("An unknown error has ocurred: " + e);
+        //}
       }
       function loadErrorView(response){
         var errorMessage = "";

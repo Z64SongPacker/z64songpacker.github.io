@@ -717,6 +717,10 @@
           database.push(entry);
         }
 
+        // Make sure the sentinel line is at the end
+        database = database.filter((s) => typeof(s) == "object");
+        database.push("__SENTINEL__: ONLY ADD ENTRIES ABOVE THIS LINE TO PREVENT MERGE CONFLICTS. Oh also, don't delete it please thank you <3");
+
         // If we have a file selected, upload it as a new commit
         var fileCommitResult = await commitFileToRepo(octokit, fileBase64, selectedRepo.binaries, originalFilePath, entry.file);
         if(!fileCommitResult) return;

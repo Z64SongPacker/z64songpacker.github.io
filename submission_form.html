@@ -683,7 +683,8 @@
 
         // Remove any reserved characters from the path, so we can create a valid tree after
         var unsafeCharacters = /[\\\/:*?"<>|]/g
-        var safeFilePath = entry.game.replace(unsafeCharacters, "") + "/" + entry.song.replace(unsafeCharacters, "");
+        var removeTrailingDots = /\.+$/g
+        var safeFilePath = entry.game.replace(unsafeCharacters, "").replace(removeTrailingDots, "") + "/" + entry.song.replace(unsafeCharacters, "");
 
         // If we have a file selected... update the path
         if(fileBase64.length > 0){

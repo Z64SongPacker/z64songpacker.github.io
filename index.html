@@ -754,8 +754,15 @@
       }
 
       function loadSongsList(songs){
+        $("#imgTitleSongs").attr("src", "");
+
         currentSongList = songs;
         var games = [...new Set(songs.map(s => s.game))];
+        
+        if(games.length == 1){
+          var logo = gamesDb.find(g => g.game == games[0])?.logo ?? "";
+          $("#imgTitleSongs").attr("src", logo);
+        }
 
         // Cleanup the panel and select the games selected for this song list
         $("#panelSongs, #panelFanfares").empty();
@@ -1395,8 +1402,16 @@
         </div>
   
         <div class="col-8 d-none" id="panelSongView">
-          <div class="card bg-body-tertiary py-3">
-            <h5 class="mb-0 border-bottom px-3 pb-3" id="lbTitleSongs">Songs view</h5>
+          <div class="card bg-body-tertiary pb-3">
+            <div class="h5 border-bottom px-3 mb-0">
+              <div class="row">
+                <div id="lbTitleSongs" class="col py-3">Songs view</div>
+                <div class="col-auto" style="padding-top: 5px; padding-bottom: 5px">
+                  <img id="imgTitleSongs" loading="lazy" height="48" alt="" src=""/>
+                </div>
+              </div>
+            </div>
+            
 
             <div id="panelSongViewOptions" class="border-bottom py-2 px-3">
               <div class="row">

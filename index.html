@@ -400,13 +400,14 @@
           repos.forEach((repo, i) => {
             var isDeletable = !defaultSettings.userRepos.some(r => r.id == repo.repoId);
             var isBroken = Object.hasOwn(repo, "error");
+            
             $("#panelRepoSelection").append(
               `<button type="button" class="btn border w-100 mb-3 ${isBroken ? "bg-danger-subtle text-danger-emphasis" : ""}" id="btnSelectRepo${i}">
-                <div class="row align-items-center">
+                <div class="row align-items-center flex-nowrap">
                   <img class="rounded-circle ml-3 col-auto" width="45" height="45" src="${repo.avatarUrl ?? defaultAvatarUrl}" />
-                  <div class="col text-start">
-                    <h5 class="mb-0">${repo.name ?? repo.repoName}</h5>
-                    <span class="opacity-75">${isBroken ? repo.error : repo.description}</span>
+                  <div class="col text-start text-break">
+                    <h5 class="mb-0">${repo.name ?? repo.repoName} ${(isDeletable ? "<span class='badge text-bg-danger'>Unsafe</span>" : "")}</h5>
+                    <span class="opacity-75">${isBroken ? repo.error : repo.description}</span><br>
                     <span class="opacity-25">${repo.repoId}</span>
                   </div>
                   ${isDeletable ? `<i id="btnRemoveRepo${i}" class="col-auto fa-solid fa-times" style="cursor: pointer"></i>` : ""}
@@ -451,6 +452,7 @@
           // Set the main selector
           $("#imgRepoAvatar").attr("src", selectedRepo.avatarUrl ?? defaultAvatarUrl);
           $("#lbRepoName").text(selectedRepo.name ?? selectedRepo.repoName);
+          $("#badgeRepoUnsafe").toggleClass("d-none", defaultSettings.userRepos.some(r => r.id == selectedRepo.repoId))
           
           var rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/`;
           if(selectedRepo.useSecondaryBranch == 'true') rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/z64packer/`;
@@ -1306,7 +1308,11 @@
       <button type="button" data-bs-toggle="modal" data-bs-target="#modalRepoSelection" class="btn border-0 px-2">
         <div class="row g-2">
           <img id="imgRepoAvatar" class="rounded-circle ml-3 col-auto" width="24" height="24" src="https://github.githubassets.com/images/gravatars/gravatar-user-420.png?size=32" />
-          <b class="col mb-0"><span id="lbRepoName">Z64 Test Repo</span> <i class="fa-solid fa-caret-down"></i></b>
+          <b class="col mb-0">
+            <span id="lbRepoName">Z64 Test Repo</span>
+            <span id="badgeRepoUnsafe" class='badge text-bg-danger d-none'>Unsafe</span>
+            <i class="fa-solid fa-caret-down"></i>
+          </b>
         </div>
       </button>
       <span class="mx-1 opacity-25">|</span>
@@ -1328,13 +1334,13 @@
               <p class="hint">This saves your selections on the browser's local storage everytime you make a change. This can be taxing to your browser! Disable it if you are experiencing slowdowns.</p>
             </div>
           </li>
-          <li>
+          <!--<li>
             <div class="form-check form-check-inline ms-3">
               <input class="form-check-input" type="checkbox" id="cbxShowDMCACriticalTracks">
               <label class="form-check-label" for="cbxShowDMCACriticalTracks">Show DMCA critical tracks</label>
               <p class="hint">Those tracks are not stream safe, and could produce DMCA claims. Don't use them if you plan on monetizing your content! Maintain this option disabled if you want to be on the safe side.</p>
             </div>
-          </li>
+          </li>-->
           <li><hr class="dropdown-divider"></li>
           <li>
             <div class="form-group mx-3">

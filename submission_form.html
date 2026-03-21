@@ -679,7 +679,7 @@
         entry.song = $("#txtSongName").val();
         entry.composers = toArray($("#txtComposers").val());
         entry.converters = toArray($("#txtConverters").val());
-        entry.isDMCACritical = $("#cbxIsDMCACritical").is(":checked");
+        //entry.isDMCACritical = $("#cbxIsDMCACritical").is(":checked");
 
         // Remove any reserved characters from the path, so we can create a valid tree after
         var unsafeCharacters = /[\\\/:*?"<>|]/g
@@ -1208,9 +1208,9 @@
               </div>
             </div>
 
-            <hr>
+            <!--<hr>
             
-            <div class="form-check">
+            <div class="form-check ">
               <input class="form-check-input" type="checkbox" id="cbxIsDMCACritical">
               <label class="form-check-label" for="cbxIsDMCACritical">
                 Is DMCA critical?
@@ -1218,7 +1218,7 @@
               <p class="hint">
                 If this track could cause DMCA related issues, then it's EXTREMELY IMPORTART to check this box so it can be filtered accordingly.
               </p>
-            </div>
+            </div>-->
   
             <hr>
 

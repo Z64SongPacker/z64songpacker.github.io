@@ -409,6 +409,7 @@
         $("#txtComposers").val(toArray(songToEdit.composers).join(", "));
         $("#txtConverters").val(toArray(songToEdit.converters).join(", "));
         $("#cbxIsDMCACritical").prop('checked', songToEdit.isDMCACritical ? true : false);
+        $("#txtNotes").val(songToEdit.notes);
 
         // Also select the preview file
         var previewType = ((songToEdit.preview ?? "") == "") ? "" : (songToEdit.preview.startsWith("https://") ? "link" : "file");
@@ -679,6 +680,8 @@
         entry.song = $("#txtSongName").val();
         entry.composers = toArray($("#txtComposers").val());
         entry.converters = toArray($("#txtConverters").val());
+        entry.notes = $("#txtNotes").val();
+
         //entry.isDMCACritical = $("#cbxIsDMCACritical").is(":checked");
 
         // Remove any reserved characters from the path, so we can create a valid tree after
@@ -708,6 +711,9 @@
           var previewCommitResult = await commitFileToRepo(octokit, previewBase64, selectedRepo.previews, originalPreviewPath, entry.preview);
           if(!previewCommitResult) return;
         }
+
+        // Cleanup the entry and remove any null values
+        entry = Object.fromEntries(Object.entries(entry).filter(([_, v]) => v != null && v != ""));
 
         // Add this entry to the json file
         if(editMode){
@@ -749,7 +755,6 @@
         if(selectedRepo.repoIsFork){
 
           // We create a title and comment for this new entry
-          var additionalNotes = $("#txtNotes").val();
           var title = `${editMode ? "Modify" : "Add new"} song: ${entry.game} - ${entry.song}`;
           var comment = `\`\`\`\n${JSON.stringify(entry, null, '\t')}\n\`\`\``;
 
@@ -1002,12 +1007,17 @@
 
           // Check if is duplicated
           // Ignore this requirement if we are editing an already existing song
-          var isInDB = database.some(s => s.game == game && s.song == song);
+          // For variant checks, only do it if the user input doesn't have a variant added
+          var variant = / \(Variant .\)$/;
+          var isInDB = database.some(s =>
+            game == s.game &&
+            song == (!variant.test(song) ? s.song.replace(variant, '') : s.song)
+          );
           var isDuplicate = isInDB && (songToEdit != undefined ? !(songToEdit.game == game && songToEdit.song == song) : true)
 
           $("#txtSongName, #txtGameName").each(function(){ this.setCustomValidity(isDuplicate ? "invalid" : ""); });
           $("#txtSongName").siblings(".invalid-feedback").html(`<b>This song is already in this repo!</b><br>
-                If this is another version of the song, add something to differentiate it, like "Flock Step (Tolin version)".<br>
+                If this is another version of the song, add something to differentiate it, like "Flock Step (Variant B)" or "Flock Step (Tolin Version)".<br>
                 If you are trying to modify an existing song, use the "Modify/update an existing song" button above.`);
         });
         
@@ -1262,9 +1272,9 @@
             <div class="form-group mb-3">
               <label>Notes:</label>
               <p class="hint">
-                Additional notes for the people handling your submission.
+                Provide any additional notes for your submission which you wish to add. This will be viewable on the packer.
               </p>
-              <input id="txtNotes" type="text" class="form-control" />
+              <textarea id="txtNotes" class="form-control"></textarea>
             </div>
   
             <button id="btnSubmit" type="submit" class="btn btn-primary w-100">

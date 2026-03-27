@@ -67,6 +67,9 @@
 #panelSongView.hide-format .format{
   display: none;
 }
+#panelSongView.hide-notes .notes{
+  display: none;
+}
 
 .sv-collapse{
   background-color: rgba(0,0,0,.12);

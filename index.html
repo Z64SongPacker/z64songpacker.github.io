@@ -61,6 +61,7 @@
         viewMetadata: false,
         viewCategories: false,
         viewFormat: true,
+        viewNotes: true,
         maintainFolderStructure: false,
         useShortGameNames: false,
         volumePreAmplifying: 0,
@@ -167,10 +168,11 @@
         settings.autosaveSelections = autosaveSelections; 
         settings.showDMCACriticalTracks = showDMCACriticalTracks;
         settings.githubFetchDelay = parseInt(parseFloat($("#rgGithubFetchDelay").val()) * 1000);
-        settings.isListView = isListView;
+        settings.isListView = $("#ddlLayout").val() == "list";
         settings.viewMetadata = $("#cbxViewMetadata").is(":checked");
         settings.viewCategories = $("#cbxViewCategories").is(":checked");
         settings.viewFormat = $("#cbxViewFormat").is(":checked");
+        settings.viewNotes = $("#cbxViewNotes").is(":checked");
         settings.maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
         settings.useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
         settings.volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
@@ -325,10 +327,11 @@
           $("#cbxShowDMCACriticalTracks").prop('checked', settings.showDMCACriticalTracks);
           $("#rgGithubFetchDelay").val((settings.githubFetchDelay || 1250) * 0.001).trigger("input");
           showDMCACriticalTracks = settings.showDMCACriticalTracks;
-          isListView = settings.isListView;
+          $("#ddlLayout").val(settings.isListView ? "list" : "grid");
           $("#cbxViewMetadata").prop('checked', settings.viewMetadata);
           $("#cbxViewCategories").prop('checked', settings.viewCategories);
           $("#cbxViewFormat").prop('checked', settings.viewFormat);
+          $("#cbxViewNotes").prop('checked', settings.viewNotes);
           $("#cbxMaintainFolderStructure").prop('checked', settings.maintainFolderStructure);
           $("#cbxUseShortGameNames").prop('checked', settings.useShortGameNames);
           $("#rgVolumePreAmplifying").val(settings.volumePreAmplifying).trigger("input");
@@ -787,6 +790,7 @@
           var isSelected = selections.includes(s.index);
           var hasPreview = !! s.preview; // <-- We check if the preview exists first
           var isDMCACritical = s.isDMCACritical ?? false;
+          var hasNotes = !! s.notes;
 
           var offsetDate = new Date();
           offsetDate.setDate(offsetDate.getDate() - 5);
@@ -796,6 +800,7 @@
           if(isDMCACritical) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
 
           // LIST VIEW
+          var isListView = $("#ddlLayout").val() == "list";
           if(isListView){
             $(isFanfare ? "#panelFanfares" : "#panelSongs").append(
               `<div class="col-12">
@@ -805,7 +810,7 @@
                     <b class="col">${s.song}${badgeAppend}</b>
                     <div class='metadata col'>
                       <span><i class="fa-solid fa-music fa-fw"></i> ${toArray(s.composers).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span><br>
-                      <span><i class="fa-solid fa-wave-square fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span>
+                      <span><i class="fa-solid fa-headphones fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span>
                     </div>
                     <div class="categories col-5">
                       <div class="row g-0 align-items-center">
@@ -819,6 +824,7 @@
                     </span>
                     <i id="btnDownload${i}" class="col-auto fa-solid fa-download" title="Download this song"></i>
                   </div>
+                  ${hasNotes ? ("<div class='notes border-top opacity-50 mt-2'>" + s.notes + "</div>") : ""}
                 </div>
               </div>`
             );
@@ -835,15 +841,20 @@
                   </div>
                   <div class='metadata border-top mt-2 pt-2'>
                     <span><i class="fa-solid fa-music fa-fw"></i> ${toArray(s.composers).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span><br>
-                    <span><i class="fa-solid fa-wave-square fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span>
+                    <span><i class="fa-solid fa-headphones fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span>
                   </div>
                   <div class='categories border-top mt-2 pt-2 row g-1'>
                     <i class="fa-solid fa-tag fa-fw col-auto pt-1"></i>
                     <div class='col mt-0'>${categories.join(" ")}</div>
                   </div>
-                  <span class="format border-top mt-2 pt-2">
-                    <i class="fa-solid fa-file-audio fa-fw"></i> <span class='opacity-50'>${isOOTRS ? "OOTRS" : "MMRS"}
-                    ${s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla bank"}</span>
+                  ${hasNotes ? (
+                    "<div class='notes border-top mt-2 pt-1'>" +
+                    "<span class='opacity-50 mt-0'>" + s.notes + "</span>" +
+                    "</div>"
+                  ) : ""}
+                  <span class="format border-top mt-2 pt-2 row g-1">
+                    <i class="fa-solid fa-file-audio fa-fw col-auto"></i>
+                    <div class='col opacity-50 mt-0'>${isOOTRS ? "OOTRS" : "MMRS"}${s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla bank"}</span>
                   </span>
                 </div>
               </div>`
@@ -945,6 +956,7 @@
         $("#panelSongView").toggleClass("hide-metadata", !$("#cbxViewMetadata").is(":checked"));
         $("#panelSongView").toggleClass("hide-categories", !$("#cbxViewCategories").is(":checked"));
         $("#panelSongView").toggleClass("hide-format", !$("#cbxViewFormat").is(":checked"));
+        $("#panelSongView").toggleClass("hide-notes", !$("#cbxViewNotes").is(":checked"));
       }
       function updateSelections(indices = [], add = true){
         // Add or remove the provided indices
@@ -1123,7 +1135,7 @@
       $(function(){
         init();
         $("#modalSongPreview").on("hide.bs.modal", stopPreview);
-        $("#cbxViewMetadata, #cbxViewCategories, #cbxViewFormat, #rgGithubFetchDelay").on("change", function(){
+        $("#cbxViewMetadata, #cbxViewCategories, #cbxViewFormat, #cbxViewNotes, #rgGithubFetchDelay").on("change", function(){
           updateSongViewOptions();
           saveSettings();
         });
@@ -1191,8 +1203,7 @@
           loadGamesList();
         });
 
-        $("#btnChangeSongView").on("click", function(){
-          isListView = !isListView;
+        $("#ddlLayout").on("change", function(){
           loadSongsList(currentSongList);
           saveSettings();
         });
@@ -1328,12 +1339,46 @@
         <ul class="dropdown-menu dropdown-menu-end pb-3" style="min-width: 400px">
           <li><h6 class="dropdown-header">Configuration:</h6></li>
           <li>
-            <div class="form-check form-check-inline ms-3">
-              <input class="form-check-input" type="checkbox" id="cbxAutosaveSelections">
-              <label class="form-check-label" for="cbxAutosaveSelections">Autosave selections</label>
-              <p class="hint">This saves your selections on the browser's local storage everytime you make a change. This can be taxing to your browser! Disable it if you are experiencing slowdowns.</p>
+            <div class="form-group mx-3 mb-3">
+              <div class="row align-items-center g-3">
+                <div class="col-auto">
+                  <label class="form-label col-form-label pb-0">Layout:</label>
+                </div>
+                <div class="col pt-2">
+                  <select class="form-control" id="ddlLayout">
+                    <option value="list">List view</option>
+                    <option value="grid">Grid view</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </li>
+          <li><hr class="dropdown-divider opacity-50"></li>
+          <li>
+            <div class="form-check form-check-inline ms-3">
+              <input class="form-check-input" type="checkbox" id="cbxViewMetadata">
+              <label class="form-check-label" for="cbxViewMetadata">Show composers and converters</label>
+            </div>
+          </li>
+          <li>
+            <div class="form-check form-check-inline ms-3">
+              <input class="form-check-input" type="checkbox" id="cbxViewCategories">
+              <label class="form-check-label" for="cbxViewCategories">Show categories</label>
+            </div>
+          </li>
+          <li>
+            <div class="form-check form-check-inline ms-3">
+              <input class="form-check-input" type="checkbox" id="cbxViewFormat">
+              <label class="form-check-label" for="cbxViewFormat">Show file format</label>
+            </div>
+          </li>
+          <li>
+            <div class="form-check form-check-inline ms-3">
+              <input class="form-check-input" type="checkbox" id="cbxViewNotes">
+              <label class="form-check-label" for="cbxViewNotes">Show additional notes</label>
+            </div>
+          </li>
+
           <!--<li>
             <div class="form-check form-check-inline ms-3">
               <input class="form-check-input" type="checkbox" id="cbxShowDMCACriticalTracks">
@@ -1341,9 +1386,19 @@
               <p class="hint">Those tracks are not stream safe, and could produce DMCA claims. Don't use them if you plan on monetizing your content! Maintain this option disabled if you want to be on the safe side.</p>
             </div>
           </li>-->
+
           <li><hr class="dropdown-divider"></li>
+          <li><h6 class="dropdown-header">Fetch and data preferences:</h6></li>
           <li>
-            <div class="form-group mx-3">
+            <div class="form-check form-check-inline ms-3">
+              <input class="form-check-input" type="checkbox" id="cbxAutosaveSelections">
+              <label class="form-check-label" for="cbxAutosaveSelections">Autosave selections</label>
+            </div>
+            <p class="ms-3 pe-3 mb-2 hint">This saves your selections on the browser's local storage everytime you make a change. This can be taxing to your browser! Disable it if you are experiencing slowdowns.</p>
+          </li>
+          <li><hr class="dropdown-divider opacity-50"></li>
+          <li>
+            <div class="form-group mx-3 mb-2">
               <div class="row g-3">
                 <div class="col-auto">
                   <label class="form-label col-form-label" for="rgGithubFetchDelay">GitHub fetch delay:</label>
@@ -1401,7 +1456,7 @@
                 <input type="text" id="txtSearchGames" placeholder="Games list" class="px-2">
               </div>
             </div>
-            <div id="panelGames" class="overflow-y-auto overflow-x-hidden" style="height: calc(100vh - 46.5px - 6.8rem)">
+            <div id="panelGames" class="overflow-y-auto overflow-x-hidden" style="height: calc(100vh - 46.5px - 7rem)">
     
             </div>
           </div>
@@ -1418,31 +1473,7 @@
               </div>
             </div>
             
-
-            <div id="panelSongViewOptions" class="border-bottom py-2 px-3">
-              <div class="row">
-                <div class="col">
-                  <div class="form-check form-check-inline form-switch">
-                    <input class="form-check-input" type="checkbox" id="cbxViewMetadata">
-                    <label class="form-check-label" for="cbxViewMetadata">Show composers/converters</label>
-                  </div>
-    
-                  <div class="form-check form-check-inline form-switch">
-                    <input class="form-check-input" type="checkbox" id="cbxViewCategories">
-                    <label class="form-check-label" for="cbxViewCategories">Show categories</label>
-                  </div>
-    
-                  <div class="form-check form-check-inline form-switch">
-                    <input class="form-check-input" type="checkbox" id="cbxViewFormat" checked>
-                    <label class="form-check-label" for="cbxViewFormat">Show file format</label>
-                  </div>
-                </div>
-
-                <i title="Change song view" id="btnChangeSongView" class="fa-solid fa-lg fa-list nav-link pe-2 col-auto" style="cursor: pointer; padding-top: 13px;"></i>
-              </div>
-              
-            </div>
-            <div class="overflow-y-auto overflow-x-hidden" style="height: calc(100vh - 46.5px - 9.4rem)">
+            <div class="overflow-y-auto overflow-x-hidden" style="height: calc(100vh - 46.5px - 6.65rem)">
               <div id="panelSongView">
                 <div class="sv-collapse row mb-0 ps-3 py-3" data-bs-toggle="collapse" data-bs-target="#panelSongs">
                   <h5 class="col mb-0">Background Music (BGMs)</h5>

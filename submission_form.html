@@ -676,11 +676,11 @@
           entry.lastUpdateDate = new Date().toISOString();
         }
 
-        entry.game = $("#txtGameName").val();
-        entry.song = $("#txtSongName").val();
+        entry.game = $("#txtGameName").val().trim();
+        entry.song = $("#txtSongName").val().trim();
         entry.composers = toArray($("#txtComposers").val());
         entry.converters = toArray($("#txtConverters").val());
-        entry.notes = $("#txtNotes").val();
+        entry.notes = $("#txtNotes").val().trim();
 
         //entry.isDMCACritical = $("#cbxIsDMCACritical").is(":checked");
 

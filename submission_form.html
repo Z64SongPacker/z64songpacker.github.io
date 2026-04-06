@@ -489,7 +489,8 @@
                   else {
                     console.log(`isFanfare ${isFanfare} | isBgm ${isBgm}`)
                     // This song has mixed categories! We cannot accept it...
-                    errorToast(`This file has missing or mixed bgm and fanfare categories!\nFix the categories.txt file so they ONLY has bgm or ONLY fanfare categories.`);
+                    if(isFanfare && isBgm) errorToast(`This file has mixed categories!\nFix the categories.txt file so they has ONLY bgm or ONLY fanfare categories.`);
+                    else errorToast(`This file has corrupt categories, or uses one that doesn't exists!\nFix the categories.txt file by using only valid categories.`);
                     clearFileInput();
                   }
                 });

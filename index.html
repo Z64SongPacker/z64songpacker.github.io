@@ -506,6 +506,7 @@
 
             // Show the list of games to the user
             loadGamesList();
+            updateTotalSelections();
 
             // Now load the filters
             var musicGroups = [...new Set(database.map(s => s.game))].sort();
@@ -609,11 +610,6 @@
       function loadGamesList(){
         $("#panelGames").empty();
 
-        // TODO: WE NEED TO ORDER THIS STUFF
-        // Basically, we need the series together with the games that have no series
-        // Then, search for the games that ARE part of a series, and add them inside...
-        // I think we need to add a method that returns a game.
-
         // Get the games list, with no dupes
         var games = [...new Set(filteredDatabase.map(s => s.game))].sort();
 
@@ -627,20 +623,19 @@
           var gData = gamesDb.find(g => g.game == game);
           return !(gData?.series || "");
         });
-        //console.log("Series:");
-        //console.log(series);
-        //console.log("Games with no series:");
-        //console.log(gamesWithNoSeries);
 
         // And now, combine them both!
         var gamesAndSeries = [...new Set(series.concat(gamesWithNoSeries))].sort();
-        //console.log("Games + series:");
-        //console.log(gamesAndSeries);
 
-        // And filter them
-        // TODO: Make a filter that includes games inside a series! That would be hard I think
-        // TODO: That would need to interfere the GAMES collection, and then get the series by that
-        //gamesAndSeries = gamesAndSeries.filter(gs => gs.toLowerCase().includes(searchFilter.toLowerCase()));
+        // TODO: ADD NEW AND UPDATED BADGES TO GAMES!
+        // For that we need optimize how selections are handled. Since we rebuild the whole game list when
+        // a new selection is made, we need 1) cache certain values or 2) rebuild only the necessary portions of the list
+
+        /*var offsetDate = new Date();
+        offsetDate.setDate(offsetDate.getDate() - 5);
+        var isNew = Date.parse(s.creationDate) >= offsetDate;
+        var isUpdated = Date.parse(s.lastUpdateDate) >= offsetDate;
+        var badgeAppend = (isNew || isUpdated) ? ` <span class="badge text-bg-secondary">${isNew ? "New" : "Updated"}</span>` : "";*/
 
         // Now, loop everything and add it to the list
         gamesAndSeries.forEach((game, i) => {
@@ -979,8 +974,9 @@
         var checkState = (currentIndeterminateSelections + currentCheckedSelections) == 0 ? "" : (currentCheckedSelections >= allSelections ? "checked" : "indeterminate");
         $("#cbxSelectAll").prop("checked", false).prop("indeterminate", false).prop(checkState, true);
 
-        // Update the BGM and Fanfare panel count
+        // Update the BGM, Fanfare and total count
         updatePanelsSelectedCount();
+        updateTotalSelections();
 
         // Save to storage if we have the option enabled
         if(autosaveSelections) saveSettingsToStorage();
@@ -992,6 +988,9 @@
         var fanfareCount = $("#panelFanfares .btn-song").length;
         var checkedFanfares = $("#panelFanfares .btn-song.active").length;
         $("#lbSelectedFanfaresCount").text(`${checkedFanfares}/${fanfareCount} selected`);
+      }
+      function updateTotalSelections(){
+        $("#lbTotalSelected").text(selections.length + "/" + database.length);
       }
 
 
@@ -1455,6 +1454,8 @@
               <div class="col mx-2 search-input">
                 <input type="text" id="txtSearchGames" placeholder="Games list" class="px-2">
               </div>
+
+              <div id="lbTotalSelected" class="col-auto">0/0</div>
             </div>
             <div id="panelGames" class="overflow-y-auto overflow-x-hidden" style="height: calc(100vh - 46.5px - 7rem)">
     

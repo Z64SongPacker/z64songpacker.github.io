@@ -319,25 +319,33 @@
           if(syncResponse === undefined) return error;
         }
         
-        
         // Collect the database json file
-        var dbResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
-          owner: username,
-          repo: selectedRepo.repoName,
-          path: "z64packer/z64songs.json"
-        }).catch((err) => {
+        // Use fetch directly since octokit is dumb and doesn't want to return raw files even though it should >:c
+        // For other files is no issue, since they will be FAR smaller than the main database
+        var dbRawResponse = await fetch(
+          `https://api.github.com/repos/${username}/${selectedRepo.repoName}/contents/z64packer/z64songs.json`,
+          {
+            headers: {
+              'Authorization': `Bearer ${authToken}`,
+              'Accept': 'application/vnd.github.raw+json',
+              'X-GitHub-Api-Version': '2022-11-28'
+            }
+          }
+        ).catch((err) => {
           error = `Couldn't get the song database from the repo: ${err}`;
         });
-        if(dbResponse === undefined) return error;
+        if(dbRawResponse === undefined) return error;
+        if(!dbRawResponse.ok) return `Couldn't get the song database from the repo: HTTP ${dbRawResponse.status}`;
 
         // Load the database
         try{
-          database = JSON.parse(decodeURIComponent(escape(atob(dbResponse.data.content))));
-          databaseSha = dbResponse.data.sha;
-
+          database = JSON.parse(await dbRawResponse.text());
+          databaseSha = (dbRawResponse.headers.get('etag') || '').replace(/^"|"$/g, '');
         } catch(e){
           return `Couldn't process song database, it could be corrupted: ${e}.\n\nThe process cannot continue.`;
         }
+
+        console.log(database);
         
 
         // Also try to get the games database, although is not required and it could be outdated

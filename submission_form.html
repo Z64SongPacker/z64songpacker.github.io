@@ -340,12 +340,20 @@
         // Load the database
         try{
           database = JSON.parse(await dbRawResponse.text());
-          databaseSha = (dbRawResponse.headers.get('etag') || '').replace(/^"|"$/g, '');
         } catch(e){
           return `Couldn't process song database, it could be corrupted: ${e}.\n\nThe process cannot continue.`;
         }
 
-        console.log(database);
+        // Get the blob SHA separately — the raw API's ETag is not the blob SHA the Contents API requires
+        var dbMetaResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+          owner: username,
+          repo: selectedRepo.repoName,
+          path: "z64packer/z64songs.json"
+        }).catch((err) => {
+          error = `Couldn't get song database SHA from the repo: ${err}`;
+        });
+        if(dbMetaResponse === undefined) return error;
+        databaseSha = dbMetaResponse.data.sha;
         
 
         // Also try to get the games database, although is not required and it could be outdated

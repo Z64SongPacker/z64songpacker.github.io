@@ -113,6 +113,7 @@
       var selectedRepo = null;
       var database = [];
       var databaseSha = "";
+      var latestCommitSha = "";
 
       // Modifying:
       var songToEdit = undefined;
@@ -318,17 +319,33 @@
           });
           if(syncResponse === undefined) return error;
         }
+
+        // Get the sha of the latests commit in the branch
+        // We'll need it to prevent caching issues
+        var latestCommitResponse = await octokit.request('GET /repos/{owner}/{repo}/commits?sha={sha}&per_page=1', {
+          owner: username,
+          repo: selectedRepo.repoName,
+          sha: latestCommitSha || selectedRepo.repoDefaultBranch
+        });
+        if(latestCommitResponse === undefined) return "Couldn't get latest commit";
+        //console.log(latestCommitResponse);
+        latestCommitSha = latestCommitResponse.data[0].sha;
+        var latestCommitDate = latestCommitResponse.data[0].commit.author.date;
+        $("#lbLatestCommitSha").html(`Database version:  
+          <a href='https://github.com/${username}/${selectedRepo.repoName}/commit/${latestCommitSha}' target='_blank'>#${latestCommitSha.substr(0, 7)}</a>
+           (${new Date(latestCommitDate).toLocaleString()})`);
+
         
         // Collect the database json file
         // Use fetch directly since octokit is dumb and doesn't want to return raw files even though it should >:c
         // For other files is no issue, since they will be FAR smaller than the main database
         var dbRawResponse = await fetch(
-          `https://api.github.com/repos/${username}/${selectedRepo.repoName}/contents/z64packer/z64songs.json`,
+          `https://api.github.com/repos/${username}/${selectedRepo.repoName}/contents/z64packer/z64songs.json?ref=${latestCommitSha}`,
           {
             headers: {
               'Authorization': `Bearer ${authToken}`,
               'Accept': 'application/vnd.github.raw+json',
-              'X-GitHub-Api-Version': '2022-11-28'
+              //'Cache-Control': 'no-cache'
             }
           }
         ).catch((err) => {
@@ -345,10 +362,11 @@
         }
 
         // Get the blob SHA separately — the raw API's ETag is not the blob SHA the Contents API requires
-        var dbMetaResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+        var dbMetaResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}?ref={ref}', {
           owner: username,
           repo: selectedRepo.repoName,
-          path: "z64packer/z64songs.json"
+          path: "z64packer/z64songs.json",
+          ref: latestCommitSha
         }).catch((err) => {
           error = `Couldn't get song database SHA from the repo: ${err}`;
         });
@@ -358,10 +376,11 @@
 
         // Also try to get the games database, although is not required and it could be outdated
         var gamesDatabase = database.map((d) => d.game);
-        var gamesDbResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+        var gamesDbResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}?ref={ref}', {
           owner: username,
           repo: selectedRepo.repoName,
-          path: "z64packer/z64games.json"
+          path: "z64packer/z64games.json",
+          ref: latestCommitSha
         }).catch((err) => {
           error = `Couldn't get the games database from the repo: ${err}`;
         });
@@ -664,8 +683,7 @@
         const octokit = buildOctokit();
         $("#loadingOverlay").removeClass("d-none");
 
-        // Get the latest database
-        // Is this new one required?
+        // Get the latest database to make sure we are adding to it
         var syncError = await syncRepoAndGetLatestDatabase();
         if(syncError != null){
           errorToast(syncError);
@@ -766,6 +784,10 @@
           return;
         }
 
+        // Make sure to add more songs AFTER this specific commit
+        // That way we don't overwrite anything!
+        latestCommitSha = updateDatabaseResult.data.commit.sha;
+
 
         // Do a pull request with the newly added files
         // We only do this on forks to allow compatibility for repo owners to also use the submission form
@@ -821,8 +843,8 @@
               }
 
               // Get the new PR number!
-              console.log("CREATE PULL REQUEST RESULT:");
-              console.log(pullRequestResult);
+              //console.log("CREATE PULL REQUEST RESULT:");
+              //console.log(pullRequestResult);
               prNumber = pullRequestResult.data.number;
 
             // If there IS an already opened PR, just add a comment to go in par with the just recently made commit
@@ -981,6 +1003,12 @@
         // Submit mappings
         $("#btnLogin").on("click", userLogin);
         $("#btnSubmissionDetailsBack").on("click", loadRepoSelection);
+        $("#btnSyncRepoAndDatabase").on("click", async function(){
+          $("#loadingOverlay").removeClass("d-none");
+          await syncRepoAndGetLatestDatabase();
+          toast("Database reloaded!");
+          $("#loadingOverlay").addClass("d-none");
+        });
         $("#btnSongSelect").on("click", selectSongToModify);
         $("#btnSubmit").on("click", submitForm);
         
@@ -1124,7 +1152,9 @@
           <div class="row g-0 py-2 align-items-center border-bottom bg-primary-subtle rounded-top">
             <i class="col-auto fa-solid fa-lg fa-arrow-left me-auto ms-3" style="cursor: pointer" id="btnSubmissionDetailsBack"></i>
             <img class="col-auto rounded-circle bg-white" id="imgRepoAvatar" width="30" height="30" src="" />
-            <h5 class="col-auto ps-2 pe-3 mb-0 me-auto" id="lbRepoName"></h5>
+            <h5 class="col-auto ps-2 mb-0" id="lbRepoName"></h5>
+            <i class="col-auto fa-solid fa-lg fa-arrow-rotate-right ms-auto me-3" style="cursor: pointer" id="btnSyncRepoAndDatabase"></i>
+            <small class="col-12 mb-0 text-center opacity-50" id="lbLatestCommitSha"></small>
           </div>
 
           <div id="preMainForm" class="p-3">

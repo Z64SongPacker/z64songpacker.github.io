@@ -917,41 +917,49 @@
       }
       async function commitFileToRepo(octokit, fileBase64, folder, originalPath, finalPath){
         if(fileBase64.length > 0){
-          // If we are editing, get the file SHA we are trying to edit
-          var fileSha = null;
           var editMode = (originalPath ?? "") != "";
-          if(editMode){
-            var getFileResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+          var fileSha = null;
+
+          // Always check if the original file exists, even for new uploads
+          // IT SHOULD NEVER HAPPEN, but if it does, we overwrite the original file if exists
+          // That's because we already check for duplicates in the form itself
+          var getFileResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+            owner: username,
+            repo: selectedRepo.repoName,
+            path: folder + (editMode ? originalPath : finalPath),
+          }).catch((err) => {
+            err = `Couldn't get original file from the repo: ${err}`;
+          });
+          if(getFileResponse !== undefined) {
+            fileSha = getFileResponse.data.sha;
+            
+            // For new uploads, also check if the files are the same...
+            // That way we prevent unnecesary commits by skipping the upload process.
+            if(fileBase64 == getFileResponse.data.content.replace(/(\r\n|\n|\r)/gm, "")){
+              return true;
+            }
+          }
+          
+          // If we are editing, check if the paths are different...
+          // If they are, then delete the original file for a clean replacement
+          // WE HAVE TO DO THIS, since the unique names are needed to prevent duplication or overwrites
+          if(editMode && (folder + originalPath) != (folder + finalPath)){
+            var deleteFileResponse = await octokit.request('DELETE /repos/{owner}/{repo}/contents/{path}', {
               owner: username,
               repo: selectedRepo.repoName,
               path: folder + originalPath,
+              message: `Delete file ${originalPath} for replacement`,
+              sha: fileSha,
             }).catch((err) => {
-              err = `Couldn't get original file from the repo: ${err}`;
+              err = `Couldn't delete original file from the repo: ${err}`;
             });
-            if(getFileResponse === undefined) {
+            if(deleteFileResponse === undefined){
               $("#loadingOverlay").addClass("d-none");
               return false;
             }
-            fileSha = getFileResponse.data.sha;
 
-            // If the filename will be different, then delete the original file for a clean replacement
-            // WE HAVE TO DO THIS, since the unique names are needed to prevent duplication or overwrites
-            if((folder + originalPath) != (folder + finalPath)){
-              var deleteFileResponse = await octokit.request('DELETE /repos/{owner}/{repo}/contents/{path}', {
-                owner: username,
-                repo: selectedRepo.repoName,
-                path: folder + originalPath,
-                message: `Delete file ${originalPath} for replacement`,
-                sha: fileSha,
-              }).catch((err) => {
-                err = `Couldn't delete original file from the repo: ${err}`;
-              });
-              if(deleteFileResponse === undefined){
-                $("#loadingOverlay").addClass("d-none");
-                return false;
-              }
-              fileSha = null; // <-- Reset the sha, since we will be creating a new file
-            }
+            // Reset the sha, since we will be creating a new file
+            fileSha = null; 
           }
 
           // Finally, add or update the file

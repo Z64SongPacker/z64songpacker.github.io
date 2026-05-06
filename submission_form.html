@@ -144,7 +144,7 @@
             },
           },
           retry: {
-            doNotRetry: ["429"],
+            doNotRetry: ["429", "404"],
           },
         });
         return octokit;
@@ -927,6 +927,9 @@
             owner: username,
             repo: selectedRepo.repoName,
             path: folder + (editMode ? originalPath : finalPath),
+            request: {
+              retries: 0
+            }
           }).catch((err) => {
             err = `Couldn't get original file from the repo: ${err}`;
           });

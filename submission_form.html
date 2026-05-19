@@ -225,7 +225,7 @@
             // If we find a z64musicpacker.properties file, this is a compatible repo!
             if(response !== undefined){
               // Read the file
-              var properties = JSON.parse(decodeURIComponent(escape(atob(response.data.content))));
+              var properties = JSON.parse((decodeURIComponent(escape(atob(response.data.content)))).replace(/^\uFEFF/, ''));
 
               // Load the repo into our list
               repos.push({
@@ -356,7 +356,7 @@
 
         // Load the database
         try{
-          database = JSON.parse(await dbRawResponse.text());
+          database = JSON.parse((await dbRawResponse.text()).replace(/^\uFEFF/, ''));
         } catch(e){
           return `Couldn't process song database, it could be corrupted: ${e}.\n\nThe process cannot continue.`;
         }
@@ -385,7 +385,8 @@
           error = `Couldn't get the games database from the repo: ${err}`;
         });
         if(gamesDbResponse !== undefined) {
-          gamesDatabase.push(...JSON.parse(decodeURIComponent(escape(atob(gamesDbResponse.data.content)))).map((d) => d.game));
+          var gamesResponseText = decodeURIComponent(escape(atob(gamesDbResponse.data.content))).replace(/^\uFEFF/, '');
+          gamesDatabase.push(...JSON.parse(gamesResponseText).map((d) => d.game));
         }
 
 

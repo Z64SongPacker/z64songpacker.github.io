@@ -607,7 +607,50 @@
         loadSongsList([]);
       }
 
-      function loadGamesList(){
+      // Only updates the counters and checkboxes
+      function updateGameSelections(games){
+        games.forEach((game) => {
+          // Get the index
+          var i = $(`div[data-game="${game}"]`).data("game-index");
+
+          // Set the current state of the checkbox and counter
+          var songsOfGame = filteredDatabase.filter(s => s.game == game);
+          var songsChecked = songsOfGame.filter(s => selections.includes(s.index));
+          var checkState = songsChecked.length == 0 ? "" : (songsChecked.length >= songsOfGame.length ? "checked" : "indeterminate");
+          
+          $(`#cbxGame${i}`).prop("checked", false).prop("indeterminate", false).prop(checkState, true);
+          $(`#lbSelectedGame${i}`).text(`${songsChecked.length}/${songsOfGame.length}`);
+        });
+
+        // Also do this for the series!
+        var seriesList = [...new Set(gamesDb.filter(g => games.includes(g.game)).map(g => g.series))];
+        updateSeriesSelections(seriesList);
+      }
+
+      function updateSeriesSelections(seriesList){
+        seriesList.forEach((series) => {
+          var selected = 0;
+          var total = 0;
+          var seriesIndex = $(`div[data-series="${series}"]`).data("series-index");
+          var games = $(`div[data-game-index^="${seriesIndex}_"]`);
+          
+          // Count the selected and total songs in all the games of this series
+          games.each(function() {
+            var i = $(this).data("game-index");
+            var selectionsSplit = $(`#lbSelectedGame${i}`).text().split("/");
+            selected += parseInt(selectionsSplit[0]) || 0;
+            total += parseInt(selectionsSplit[1]) || 0;
+          });
+
+          // Apply the count
+          var checkState = selected == 0 ? "" : (selected >= total ? "checked" : "indeterminate");
+          $(`#cbxSeries${seriesIndex}`).prop("checked", false).prop("indeterminate", false).prop(checkState, true);
+          $(`#lbSelectedSeries${seriesIndex}`).text(`${selected}/${total}`);
+        });
+      }
+
+      // Loads the whole game list! This is performance intensive, so use it only when necessary
+      function loadGamesList() {
         $("#panelGames").empty();
 
         // Get the games list, with no dupes
@@ -671,10 +714,10 @@
 
             // Append the series collapse nav item
             $("#panelGames").append(
-              `<div class="btn-series row g-0 ${isSelected ? "active" : ""}" id="btnSeries${i}" data-series="${game}">
+              `<div class="btn-series row g-0 ${isSelected ? "active" : ""}" id="btnSeries${i}" data-series="${game}" data-series-index="${i}">
                 <input class="form-check-input col-auto" type="checkbox" value="" id="cbxSeries${i}" ${checkState}/>
                 <span class="col ms-3">${game}</span>
-                <span class="col-auto me-2">${songsChecked.length}/${songsOfSeries.length}</span>
+                <span class="col-auto me-2" id="lbSelectedSeries${i}">${songsChecked.length}/${songsOfSeries.length}</span>
                 <i class="col-auto fa-solid fa-caret-down me-2 mt-1"></i>
               </div>
               <div class="collapse collapse-series" id="collapseSeries${i}"></div>`
@@ -721,27 +764,25 @@
           }
         });
       }
+
       function createGameNavItem(panelId, game, i){
         var isPartOfSeries = ("" + i).includes("_");
         var songsOfGame = filteredDatabase.filter(s => s.game == game);
-        if(songsOfGame.length == 0) return; // Skip this game if we do not have any songs inside...
+        if(songsOfGame.length == 0) return; // Skip creating this game if it doesn't have any songs inside
 
-        var songsChecked = songsOfGame.filter(s => selections.includes(s.index));
-        var checkState = songsChecked.length == 0 ? "" : (songsChecked.length >= songsOfGame.length ? "checked" : "indeterminate");
-        
         // Append the game nav item
         $(panelId).append(
-          `<div class="btn-game row g-0" id="btnGame${i}" data-game="${game}">
+          `<div class="btn-game row g-0" id="btnGame${i}" data-game="${game}" data-game-index="${i}">
             ${isPartOfSeries ? `<span class="col-auto me-3 opacity-25" style="margin-left: .3rem"><i class="fa-solid fa-rotate-90 fa-arrow-turn-up"></i></span>` : ""}
-            <input class="form-check-input col-auto" type="checkbox" value="" id="cbxGame${i}" ${checkState}/>
+            <input class="form-check-input col-auto" type="checkbox" value="" id="cbxGame${i}"/>
             <span class="col ms-3">${game}</span>
-            <span class="col-auto me-4">${songsChecked.length}/${songsOfGame.length}</span>
+            <span class="col-auto me-4" id="lbSelectedGame${i}"></span>
           </div>`
         );
 
-        // Set the current state of the checkbox (we do it like this for the intermediate stuff)
-        if(checkState != "") $(`#cbxGame${i}`).prop(checkState, true);
-
+        // Set the current state of the checkbox and counter
+        updateGameSelections([game]);
+        
         // Add handlers for the inputs
         $(`#btnGame${i}`).on("click", function(){
           loadSongsList(songsOfGame);
@@ -752,6 +793,7 @@
           updateSelections(songIndices, this.checked);
         });
       }
+
 
       function loadSongsList(songs){
         $("#imgTitleSongs").attr("src", "");
@@ -859,7 +901,7 @@
           $(`#btnSong${i}`).on("click", function(){
             if(isSelected) selections = selections.filter(sel => sel != s.index);
             else selections.push(s.index);
-            updateSelections();
+            updateSelections([s.index], !isSelected);
           });
           $(`#btnDownload${i}`).on("click", function(event){
             event.stopPropagation();
@@ -953,6 +995,7 @@
         $("#panelSongView").toggleClass("hide-format", !$("#cbxViewFormat").is(":checked"));
         $("#panelSongView").toggleClass("hide-notes", !$("#cbxViewNotes").is(":checked"));
       }
+
       function updateSelections(indices = [], add = true){
         // Add or remove the provided indices
         if(indices.length > 0){
@@ -962,9 +1005,20 @@
 
         // Make sure there is no duplicates
         selections = [...new Set(selections)];
+        
+        // Load the games view
+        // Try to update only the games of this specific selection
+        if(indices.length > 0){
+          var gameInSelections = [...new Set(database.filter((s) => indices.includes(s.index)).map((s) => s.game))];
+          updateGameSelections(gameInSelections);
 
-        // Reload the lists
-        loadGamesList();
+        // If no indices were given, then reload the whole thing... not ideal, but does the job
+        } else{
+          loadGamesList();
+        }
+
+
+        // Load the song view
         loadSongsList(currentSongList);
 
         // Also update the select all

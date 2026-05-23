@@ -18,6 +18,7 @@
     <script src="js/typeahead.bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/js-cookie@3.0.5/dist/js.cookie.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-md5@0.8.3/src/md5.min.js"></script>
 
     <!-- Packer files -->
     <link rel="stylesheet" type="text/css" href="css/z64_song_packer.css" />
@@ -135,7 +136,7 @@
             //mode: "no-cors"
           });
           
-          console.log(response);
+          //console.log(response);
 
           // If the response is an 429 (to many requests), we should wait a bit and try again (5 seconds)
           // We should retry 3 times, before just returning
@@ -229,39 +230,114 @@
           return defaultSettings;
         }
       }
+
       function deleteSettings(){
         localStorage.removeItem("settings");
       }
+
       const toText = file => new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
         reader.onerror = reject;
         reader.readAsText(file);
       });
+
+      function getSettingsJsonFromText(text){
+        var settingsJson = JSON.parse(text);
+
+        // Fix any missing properties
+        for (const [key, value] of Object.entries(defaultSettings)) {
+          // console.log(`${key}: ${value}`);
+
+          // If we dont have a property, assign the default value! 
+          if(!settingsJson.hasOwnProperty(key)){
+            settingsJson[key] = value;
+          }
+        }
+
+        return settingsJson;
+      }
+
       async function loadSettingsFromFile(event){
         $("#loadingOverlay").removeClass("d-none");
         try{
           var file = event.target.files[0];
-          var settingsText = await toText(file);
-          var settingsJson = JSON.parse(settingsText);
+          var fileName = file.name;
 
-          // TODO: CHECK IF IMPORTANT SETTINGS ARE MISSINGS, AND SO, REJECT THIS FILE
+          if(fileName.endsWith(".z64packersettings")){
+            var settingsText = await toText(file);
+            var settingsJson = getSettingsJsonFromText(settingsText);
 
-          // Fix any missing properties
-          for (const [key, value] of Object.entries(defaultSettings)) {
-            // console.log(`${key}: ${value}`);
+            // Actually save the new settings!
+            localStorage.settings = btoa(JSON.stringify(settingsJson));
 
-            // If we dont have a property, assign the default value! 
-            if(!settingsJson.hasOwnProperty(key)){
-              settingsJson[key] = value;
+          // ZIP HANDLING: read the hash of every file inside
+          } else if(fileName.endsWith(".zip")){
+            // Create a hash map of the current files
+            const fixedDate = new Date('2026-05-22T00:00:00.000Z');
+
+            // Fetch the full binaries.zip file
+            var binariesLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/binaries.zip`.replaceAll("//", "/");
+            var binariesResponse = await githubFetch(binariesLink);
+            if(binariesResponse.ok){
+              var settingsJson = getSettings();
+
+              // Create a hashmap of the user files
+              var userHashMap = [];
+              var userZip = await new JSZip().loadAsync(file);
+              for (let path of Object.keys(userZip.files)) {
+                if(path.endsWith(".z64packersettings")){
+                  settingsJson = getSettingsJsonFromText(settingsText);
+                }
+
+                if(path.endsWith(".mmrs") || path.endsWith(".ootrs")){
+                  // Open that file up
+                  var songFile = await new JSZip().loadAsync(await userZip.file(path).async("arraybuffer"));
+                  for (let internalPath of Object.keys(songFile.files)) {
+                    if(internalPath.endsWith(".seq") || internalPath.endsWith(".zseq")){
+                      var hash = md5(await songFile.file(internalPath).async("uint8array"));
+                      userHashMap.push(hash);
+                    }
+                  }
+                }
+              }
+
+              // Loop all the binaries, and get the paths of the matched files
+              var matches = [];
+              var binaries = await new JSZip().loadAsync(await binariesResponse.blob());
+              for (let path of Object.keys(binaries.files)) {
+                if(path.endsWith(".mmrs") || path.endsWith(".ootrs")){
+                  // Open that file up
+                  var songZip = await new JSZip().loadAsync(await binaries.file(path).async("arraybuffer"));
+                  for (let internalPath of Object.keys(songZip.files)) {
+                    if(internalPath.endsWith(".seq") || internalPath.endsWith(".zseq")){
+
+                      // If the internal hash matches, we found a selection!
+                      var hash = md5(await songZip.file(internalPath).async("uint8array"));
+                      if(userHashMap.includes(hash)){
+
+                        // Get it's uuid in the loaded database
+                        var correctPath = path.replace(selectedRepo.binaries, "");
+                        var foundSong = database.find(s => s.file == correctPath);
+                        matches.push(foundSong.uuid);
+                      }
+                    }
+                  }
+                }
+              }
+
+              // Now apply the uuids to our current settings
+              var repoInfo = settingsJson.userRepos.find(ur => ur.id == selectedRepo.repoId);
+              repoInfo.selections = [...new Set([...repoInfo.selections, ...matches])];
+
+              // Actually save the new settings!
+              localStorage.settings = btoa(JSON.stringify(settingsJson));
             }
           }
 
-          // Actually save the new settings!
-          localStorage.settings = btoa(JSON.stringify(settingsJson));
-
         } catch(e){
           errorToast("There was an error! These settings file seems to be corrupted...");
+          console.log(e);
         }
 
         init();
@@ -1468,18 +1544,27 @@
           <li><hr class="dropdown-divider"></li>
           <li><h6 class="dropdown-header">Export/Import settings and selections:</h6></li>
           <li>
-            <div class="row mx-2">
-              <button type="button" id="btnExportSettings" class="btn btn-search col ms-2 me-1">
-                <i class="fas fa-download me-2"></i>Export settings
-              </button>
-              <button type="button" id="btnImportSettings" class="btn btn-search col ms-1 me-2">
-                <i class="fas fa-upload me-2"></i>Import settings
-              </button>
-              <input type="file" id="fileImportSettings" accept=".z64packersettings" hidden>
+            <div class="form-group mx-3 mb-2">
+              <div class="row mx-2 mb-2">
+                <button type="button" id="btnExportSettings" class="btn btn-search col me-1">
+                  <i class="fas fa-download me-2"></i>Export settings
+                </button>
+                <button type="button" id="btnImportSettings" class="btn btn-search col ms-1">
+                  <i class="fas fa-upload me-2"></i>Import settings
+                </button>
+                <input type="file" id="fileImportSettings" accept=".z64packersettings,.zip" hidden>
+              </div>
+              <p class="hint">
+                <b>Export</b>: only in .z64packersettings format, which is a json file with no binaries. Always included in every song pack zip.<br>
+                <b>Import</b>: available in .z64packersettings and .zip format. The zip is automatically searched for a z64packersettings file, and also compares the actual files; it may take a while to process.
+              </p>
             </div>
           </li>
+
+          <li><hr class="dropdown-divider"></li>
+          <li><h6 class="dropdown-header"><b>Danger zone:</b></h6></li>
           <li class="text-center pt-3">
-            <button type="button" id="btnDeleteSettings" class="btn btn-outline-danger mx-3">
+            <button type="button" id="btnDeleteSettings" class="btn btn-outline-danger">
               <i class="fas fa-trash me-2"></i>Delete settings
             </button>
           </li>

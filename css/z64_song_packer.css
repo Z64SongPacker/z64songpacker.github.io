@@ -58,7 +58,14 @@
   background-color: var(--bs-primary-bg-subtle);
   border-color: var(--bs-primary-text-emphasis);
 }
-#panelSongView.hide-metadata .metadata{
+
+#panelSongView.hide-composers.hide-converters .metadata{
+  display: none;
+}
+#panelSongView.hide-composers .composers{
+  display: none;
+}
+#panelSongView.hide-converters .converters{
   display: none;
 }
 #panelSongView.hide-categories .categories{

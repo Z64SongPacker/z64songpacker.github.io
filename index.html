@@ -59,7 +59,8 @@
         showDMCACriticalTracks: false,
         githubFetchDelay: 1250,
         isListView: true,
-        viewMetadata: false,
+        viewComposers: false,
+        viewConverters: false,
         viewCategories: false,
         viewFormat: true,
         viewNotes: true,
@@ -89,7 +90,9 @@
       var isListView = true;
       var defaultAvatarUrl = "https://github.githubassets.com/images/gravatars/gravatar-user-420.png?size=32";
 
-
+      var offsetDate = new Date();
+      offsetDate.setDate(offsetDate.getDate() - 5);
+      var offsetTimestamp = offsetDate.getTime();
 
       function errorResponseToast(response){
         errorToast(`An error ocurred: ${response.url} [${response.status}]`);
@@ -170,7 +173,8 @@
         settings.showDMCACriticalTracks = showDMCACriticalTracks;
         settings.githubFetchDelay = parseInt(parseFloat($("#rgGithubFetchDelay").val()) * 1000);
         settings.isListView = $("#ddlLayout").val() == "list";
-        settings.viewMetadata = $("#cbxViewMetadata").is(":checked");
+        settings.viewComposers = $("#cbxViewComposers").is(":checked");
+        settings.viewConverters = $("#cbxViewConverters").is(":checked");
         settings.viewCategories = $("#cbxViewCategories").is(":checked");
         settings.viewFormat = $("#cbxViewFormat").is(":checked");
         settings.viewNotes = $("#cbxViewNotes").is(":checked");
@@ -242,6 +246,8 @@
         reader.readAsText(file);
       });
 
+
+      // TODO: COMBINE WITH CURRENT SETTINGS 
       function getSettingsJsonFromText(text){
         var settingsJson = JSON.parse(text);
 
@@ -404,7 +410,8 @@
           $("#rgGithubFetchDelay").val((settings.githubFetchDelay || 1250) * 0.001).trigger("input");
           showDMCACriticalTracks = settings.showDMCACriticalTracks;
           $("#ddlLayout").val(settings.isListView ? "list" : "grid");
-          $("#cbxViewMetadata").prop('checked', settings.viewMetadata);
+          $("#cbxViewComposers").prop('checked', settings.viewComposers);
+          $("#cbxViewConverters").prop('checked', settings.viewConverters);
           $("#cbxViewCategories").prop('checked', settings.viewCategories);
           $("#cbxViewFormat").prop('checked', settings.viewFormat);
           $("#cbxViewNotes").prop('checked', settings.viewNotes);
@@ -749,13 +756,7 @@
         // TODO: ADD NEW AND UPDATED BADGES TO GAMES!
         // For that we need optimize how selections are handled. Since we rebuild the whole game list when
         // a new selection is made, we need 1) cache certain values or 2) rebuild only the necessary portions of the list
-
-        /*var offsetDate = new Date();
-        offsetDate.setDate(offsetDate.getDate() - 5);
-        var isNew = Date.parse(s.creationDate) >= offsetDate;
-        var isUpdated = Date.parse(s.lastUpdateDate) >= offsetDate;
-        var badgeAppend = (isNew || isUpdated) ? ` <span class="badge text-bg-secondary">${isNew ? "New" : "Updated"}</span>` : "";*/
-
+        
         // Now, loop everything and add it to the list
         gamesAndSeries.forEach((game, i) => {
 
@@ -788,11 +789,20 @@
             // If there are no games inside this series, then skip it
             if(gamesOfSeries.length == 0) return;
 
+            // Also skip if there are no songs
+            var songsOfSeries = filteredDatabase.filter(s => gamesOfSeries.includes(s.game));
+            if(songsOfSeries.length == 0) return;
+
+            // Check if there are new or updated songs
+            var hasNew = songsOfSeries.some(s => Date.parse(s.creationDate) >= offsetTimestamp);
+            var hasUpdated = songsOfSeries.some(s => Date.parse(s.lastUpdateDate) >= offsetTimestamp);
+            var badgeAppend = (hasNew || hasUpdated) ? ` <span class="badge text-bg-secondary">${hasNew ? "New" : "Updated"}</span>` : "";
+
             // Append the series collapse nav item
             $("#panelGames").append(
               `<div class="btn-series row g-0 ${isSelected ? "active" : ""}" id="btnSeries${i}" data-series="${game}" data-series-index="${i}">
                 <input class="form-check-input col-auto" type="checkbox" value="" id="cbxSeries${i}" ${checkState}/>
-                <span class="col ms-3">${game}</span>
+                <span class="col ms-3">${game}${badgeAppend}</span>
                 <span class="col-auto me-2" id="lbSelectedSeries${i}">${songsChecked.length}/${songsOfSeries.length}</span>
                 <i class="col-auto fa-solid fa-caret-down me-2 mt-1"></i>
               </div>
@@ -846,12 +856,17 @@
         var songsOfGame = filteredDatabase.filter(s => s.game == game);
         if(songsOfGame.length == 0) return; // Skip creating this game if it doesn't have any songs inside
 
+        // Check if there are new or updated songs
+        var hasNew = songsOfGame.some(s => Date.parse(s.creationDate) >= offsetTimestamp);
+        var hasUpdated = songsOfGame.some(s => Date.parse(s.lastUpdateDate) >= offsetTimestamp);
+        var badgeAppend = (hasNew || hasUpdated) ? ` <span class="badge text-bg-secondary">${hasNew ? "New" : "Updated"}</span>` : "";
+
         // Append the game nav item
         $(panelId).append(
           `<div class="btn-game row g-0" id="btnGame${i}" data-game="${game}" data-game-index="${i}">
             ${isPartOfSeries ? `<span class="col-auto me-3 opacity-25" style="margin-left: .3rem"><i class="fa-solid fa-rotate-90 fa-arrow-turn-up"></i></span>` : ""}
             <input class="form-check-input col-auto" type="checkbox" value="" id="cbxGame${i}"/>
-            <span class="col ms-3">${game}</span>
+            <span class="col ms-3">${game}${badgeAppend}</span>
             <span class="col-auto me-4" id="lbSelectedGame${i}"></span>
           </div>`
         );
@@ -921,9 +936,11 @@
                   <div class="row align-items-center g-2">
                     <i id="btnPreview${i}" class="col-auto fa-solid fa-play ${hasPreview ? "" : "opacity-25"}" title="Preview"></i>
                     <b class="col">${s.song}${badgeAppend}</b>
-                    <div class='metadata col'>
-                      <span><i class="fa-solid fa-music fa-fw"></i> ${toArray(s.composers).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span><br>
-                      <span><i class="fa-solid fa-headphones fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span>
+                    <div class="metadata col">
+                      <div class="row">
+                        <div class="composers w-100"><i class="fa-solid fa-music fa-fw"></i> ${toArray(s.composers).join(", ") || "<span class='opacity-50'>Unknown</span>"}</div>
+                        <div class="converters w-100"><i class="fa-solid fa-headphones fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</div>
+                      </div>
                     </div>
                     <div class="categories col-5">
                       <div class="row g-0 align-items-center">
@@ -953,8 +970,10 @@
                     <i id="btnPreview${i}" class="col-auto fa-solid fa-play ${hasPreview ? "" : "opacity-25"}" title="Preview"></i>
                   </div>
                   <div class='metadata border-top mt-2 pt-2'>
-                    <span><i class="fa-solid fa-music fa-fw"></i> ${toArray(s.composers).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span><br>
-                    <span><i class="fa-solid fa-headphones fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</span>
+                    <div class="row">
+                      <div class="composers w-100"><i class="fa-solid fa-music fa-fw"></i> ${toArray(s.composers).join(", ") || "<span class='opacity-50'>Unknown</span>"}</div>
+                      <div class="converters w-100"><i class="fa-solid fa-headphones fa-fw"></i> ${toArray(s.converters).join(", ") || "<span class='opacity-50'>Unknown</span>"}</div>
+                    </div>
                   </div>
                   <div class='categories border-top mt-2 pt-2 row g-1'>
                     <i class="fa-solid fa-tag fa-fw col-auto pt-1"></i>
@@ -1066,7 +1085,8 @@
       // ---------- SONG VIEW BUTTONS -------------
 
       function updateSongViewOptions(){
-        $("#panelSongView").toggleClass("hide-metadata", !$("#cbxViewMetadata").is(":checked"));
+        $("#panelSongView").toggleClass("hide-composers", !$("#cbxViewComposers").is(":checked"));
+        $("#panelSongView").toggleClass("hide-converters", !$("#cbxViewConverters").is(":checked"));
         $("#panelSongView").toggleClass("hide-categories", !$("#cbxViewCategories").is(":checked"));
         $("#panelSongView").toggleClass("hide-format", !$("#cbxViewFormat").is(":checked"));
         $("#panelSongView").toggleClass("hide-notes", !$("#cbxViewNotes").is(":checked"));
@@ -1264,7 +1284,7 @@
       $(function(){
         init();
         $("#modalSongPreview").on("hide.bs.modal", stopPreview);
-        $("#cbxViewMetadata, #cbxViewCategories, #cbxViewFormat, #cbxViewNotes, #rgGithubFetchDelay").on("change", function(){
+        $("#cbxViewComposers, #cbxViewConverters, #cbxViewCategories, #cbxViewFormat, #cbxViewNotes, #rgGithubFetchDelay").on("change", function(){
           updateSongViewOptions();
           saveSettings();
         });
@@ -1485,8 +1505,14 @@
           <li><hr class="dropdown-divider opacity-50"></li>
           <li>
             <div class="form-check form-check-inline ms-3">
-              <input class="form-check-input" type="checkbox" id="cbxViewMetadata">
-              <label class="form-check-label" for="cbxViewMetadata">Show composers and converters</label>
+              <input class="form-check-input" type="checkbox" id="cbxViewComposers">
+              <label class="form-check-label" for="cbxViewComposers">Show composers</label>
+            </div>
+          </li>
+          <li>
+            <div class="form-check form-check-inline ms-3">
+              <input class="form-check-input" type="checkbox" id="cbxViewConverters">
+              <label class="form-check-label" for="cbxViewConverters">Show converters</label>
             </div>
           </li>
           <li>

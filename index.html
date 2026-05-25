@@ -71,15 +71,22 @@
 
         // Available repos
         // These repos CANNOT be deleted by the user, they will always be available, ya like it or not!
-        selectedRepoId: "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0",
+        /*selectedRepoId: "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0",
         userRepos: [
           { id: "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0", selections: [] },
           { id: "Japas-Jams/MM-Custom-Sequences/main", selections: [] }
+        ],*/
+        // Should we put an ID also on this...? Make it a dictionary...?
+        userRepos: [
+          "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0",
+          "Japas-Jams/MM-Custom-Sequences/main"
         ],
+        selectedReposIndices: [0],
+        selections: []
       };
 
       var repos = [];
-      var selectedRepo = null;
+      var selectedReposIndices = []; // Index to use in the repos array
       var database = []; // z64songs.json
       var gamesDb = []; // z64games.json
       var selections = [];
@@ -183,35 +190,27 @@
         settings.useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
         settings.volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
 
+        // Selections now are universal, since we are using uuids
+        settings.selections = [...new Set([...settings.selections, ...selections.map(i => database[i].uuid)])];
+
         // Then, save selected repo
-        settings.selectedRepoId = selectedRepo.repoId;
+        settings.selectedReposIndices = selectedReposIndices;
 
         // Now, save also the user selections for this current repo
+        // This includes adding and removing repos
         var userRepos = settings.userRepos || [];
-        var uuidSelections = selections.map(i => database[i].uuid);
-        var repoIndex = userRepos.findIndex(r => r.id == selectedRepo.repoId);
-
-        // If we cant find the repo, just add it as a new one
-        // This should not happen tho...
-        if(repoIndex == -1) userRepos.push({
-          id: selectedRepo.repoId,
-          selections: uuidSelections,
-        });
-        else userRepos[repoIndex].selections = uuidSelections;
-
-        // We modify the repos if necessary
         if(repoToModify){
           if(addNewRepo){
-            var isAlreadyOnSettings = userRepos.some(function(repo){ return repo.id == repoToModify; });
+            var isAlreadyOnSettings = userRepos.some(r => r == repoToModify);
             if(isAlreadyOnSettings){
               errorToast(`Repo ${repoToModify} is already registered!`);
 
             } else{
-              userRepos.push({ id: repoToModify, selections: [] });
+              userRepos.push(repoToModify);
               toast(`Repo ${repoToModify} added successfully!`);
             }
           } else{
-            userRepos = userRepos.filter(function(repo){ return repo.id !== repoToModify; });
+            userRepos = userRepos.filter(r => r !== repoToModify);
             toast(`Repo ${repoToModify} removed successfully!`);
           }
         }
@@ -220,12 +219,13 @@
         // Finish the saving!
         localStorage.settings = btoa(JSON.stringify(settings));
       }
+
       function getSettings(){
         try{
           var settings = JSON.parse(atob(localStorage.settings));
           defaultSettings.userRepos.forEach((repo, i) => {
             // If we do not find this default repo within the user ones, we just add it
-            var isAvailable = settings.userRepos.some(r => r.id == repo.id);
+            var isAvailable = settings.userRepos.some(r => r == repo);
             if(!isAvailable) settings.userRepos.push(repo);
           });
           return settings;
@@ -280,69 +280,72 @@
 
           // ZIP HANDLING: read the hash of every file inside
           } else if(fileName.endsWith(".zip")){
-            // Create a hash map of the current files
             const fixedDate = new Date('2026-05-22T00:00:00.000Z');
+            var settingsJson = getSettings();
 
-            // Fetch the full binaries.zip file
-            var binariesLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/binaries.zip`.replaceAll("//", "/");
-            var binariesResponse = await githubFetch(binariesLink);
-            if(binariesResponse.ok){
-              var settingsJson = getSettings();
+            // Create a hashmap of the user files
+            var userHashMap = [];
+            var userZip = await new JSZip().loadAsync(file);
+            for (let path of Object.keys(userZip.files)) {
+              if(path.endsWith(".z64packersettings")){
+                settingsJson = getSettingsJsonFromText(settingsText);
+              }
 
-              // Create a hashmap of the user files
-              var userHashMap = [];
-              var userZip = await new JSZip().loadAsync(file);
-              for (let path of Object.keys(userZip.files)) {
-                if(path.endsWith(".z64packersettings")){
-                  settingsJson = getSettingsJsonFromText(settingsText);
-                }
-
-                if(path.endsWith(".mmrs") || path.endsWith(".ootrs")){
-                  // Open that file up
-                  var songFile = await new JSZip().loadAsync(await userZip.file(path).async("arraybuffer"));
-                  for (let internalPath of Object.keys(songFile.files)) {
-                    if(internalPath.endsWith(".seq") || internalPath.endsWith(".zseq")){
-                      var seq = await songFile.file(internalPath).async("uint8array");
-                      SeqUtils.preAmplifyVolume(seq, -256); // Floor the volume to zero
-                      userHashMap.push(md5(seq));
-                    }
+              if(path.endsWith(".mmrs") || path.endsWith(".ootrs")){
+                // Open that file up
+                var songFile = await new JSZip().loadAsync(await userZip.file(path).async("arraybuffer"));
+                for (let internalPath of Object.keys(songFile.files)) {
+                  if(internalPath.endsWith(".seq") || internalPath.endsWith(".zseq")){
+                    var seq = await songFile.file(internalPath).async("uint8array");
+                    SeqUtils.preAmplifyVolume(seq, -256); // Floor the volume to zero
+                    userHashMap.push(md5(seq));
                   }
                 }
               }
+            }
+            
+            // Now loop all the binaries of the selected repos
+            var matches = [];
+            for(var selectedRepoIndex in selectedReposIndices){
+              var selectedRepo = repos[selectedRepoIndex];
 
-              // Loop all the binaries, and get the paths of the matched files
-              var matches = [];
-              var binaries = await new JSZip().loadAsync(await binariesResponse.blob());
-              for (let path of Object.keys(binaries.files)) {
-                if(path.endsWith(".mmrs") || path.endsWith(".ootrs")){
-                  // Open that file up
-                  var songZip = await new JSZip().loadAsync(await binaries.file(path).async("arraybuffer"));
-                  for (let internalPath of Object.keys(songZip.files)) {
-                    if(internalPath.endsWith(".seq") || internalPath.endsWith(".zseq")){
+              // Fetch the full binaries.zip file
+              var binariesLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/binaries.zip`.replaceAll("//", "/");
+              var binariesResponse = await githubFetch(binariesLink);
+              if(binariesResponse.ok){
 
-                      // If the internal hash matches, we found a selection!
-                      var seq = await songZip.file(internalPath).async("uint8array");
-                      SeqUtils.preAmplifyVolume(seq, -256); // Floor the volume to zero
-                      var hash = md5(seq);
-                      if(userHashMap.includes(hash)){
+                // Loop all the binaries, and get the paths of the matched files
+                var binaries = await new JSZip().loadAsync(await binariesResponse.blob());
+                for (let path of Object.keys(binaries.files)) {
+                  if(path.endsWith(".mmrs") || path.endsWith(".ootrs")){
+                    // Open that file up
+                    var songZip = await new JSZip().loadAsync(await binaries.file(path).async("arraybuffer"));
+                    for (let internalPath of Object.keys(songZip.files)) {
+                      if(internalPath.endsWith(".seq") || internalPath.endsWith(".zseq")){
 
-                        // Get it's uuid in the loaded database
-                        var correctPath = path.replace(selectedRepo.binaries, "");
-                        var foundSong = database.find(s => s.file == correctPath);
-                        matches.push(foundSong.uuid);
+                        // If the internal hash matches, we found a selection!
+                        var seq = await songZip.file(internalPath).async("uint8array");
+                        SeqUtils.preAmplifyVolume(seq, -256); // Floor the volume to zero
+                        var hash = md5(seq);
+                        if(userHashMap.includes(hash)){
+
+                          // Get it's uuid in the loaded database
+                          var correctPath = path.replace(selectedRepo.binaries, "");
+                          var foundSong = database.find(s => s.file == correctPath);
+                          matches.push(foundSong.uuid);
+                        }
                       }
                     }
                   }
                 }
               }
-
-              // Now apply the uuids to our current settings
-              var repoInfo = settingsJson.userRepos.find(ur => ur.id == selectedRepo.repoId);
-              repoInfo.selections = [...new Set([...repoInfo.selections, ...matches])];
-
-              // Actually save the new settings!
-              localStorage.settings = btoa(JSON.stringify(settingsJson));
             }
+
+            // Now apply the uuids to our current settings
+            settingsJson.selections = [...new Set([...settingsJson.selections, ...matches])];
+
+            // Actually save the new settings!
+            localStorage.settings = btoa(JSON.stringify(settingsJson));
           }
 
         } catch(e){
@@ -425,14 +428,13 @@
 
           // Now load their selections
           // Settings by default add the default repos together with the user-defined ones
-          var userRepos = settings.userRepos.map(r => r.id);
           repos = [];
 
           // Load the properties from each repo
           // We do this every time, to always have the latest version of each one
           // await Promise.all(userRepos.map(async (id) => { // <- Swapped to normal for-loop to allow sequencial requests, instead of simultaneous
-          for(var i = 0; i < userRepos.length; i++){
-            var id = userRepos[i];
+          for(var i = 0; i < settings.userRepos.length; i++){
+            var id = settings.userRepos[i];
 
             var idSplitted = id.split("/");
             var owner = idSplitted[0];
@@ -485,42 +487,11 @@
             repos.push(repoObject);
           } //));
 
-          
-          $("#panelRepoSelection").empty();
-          repos.forEach((repo, i) => {
-            var isDeletable = !defaultSettings.userRepos.some(r => r.id == repo.repoId);
-            var isBroken = Object.hasOwn(repo, "error");
-            
-            $("#panelRepoSelection").append(
-              `<button type="button" class="btn border w-100 mb-3 ${isBroken ? "bg-danger-subtle text-danger-emphasis" : ""}" id="btnSelectRepo${i}">
-                <div class="row align-items-center flex-nowrap">
-                  <img class="rounded-circle ml-3 col-auto" width="45" height="45" src="${repo.avatarUrl ?? defaultAvatarUrl}" />
-                  <div class="col text-start text-break">
-                    <h5 class="mb-0">${repo.name ?? repo.repoName} ${(isDeletable ? "<span class='badge text-bg-danger'>Unsafe</span>" : "")}</h5>
-                    <span class="opacity-75">${isBroken ? repo.error : repo.description}</span><br>
-                    <span class="opacity-25">${repo.repoId}</span>
-                  </div>
-                  ${isDeletable ? `<i id="btnRemoveRepo${i}" class="col-auto fa-solid fa-times" style="cursor: pointer"></i>` : ""}
-                </div>
-              </button>`
-            );
-            
-            // Only allow deleting this repository if it's manually added by the user
-            if(isDeletable) $(`#btnRemoveRepo${i}`).on("click", function(){
-              removeRepository(repo.repoId);
-            });
-
-            // Only allow selecting this repo if it's not broken
-            if(!isBroken) $(`#btnSelectRepo${i}`).on("click", function(){
-              selectedRepo = repo;
-              loadRepo();
-            });
-          });
-          
           // Try to load the selected repo from the storage
-          var selectedRepoId = settings.selectedRepoId;
-          selectedRepo = repos.find(r => r.repoId == selectedRepoId) || repos[0];
+          selectedReposIndices = settings.selectedReposIndices || [];
+          loadRepoSelections();
 
+          // Finally, load the repos!
           await loadRepo();
           $("#loadingOverlay").addClass("d-none");
 
@@ -533,107 +504,164 @@
         }
       }
 
+      function loadRepoSelections(){
+        $("#panelRepoSelection").empty();
+        repos.forEach((repo, i) => {
+          var isDeletable = !defaultSettings.userRepos.some(r => r == repo.repoId);
+          var isBroken = Object.hasOwn(repo, "error");
+          var isSelected = !isBroken && selectedReposIndices.includes(i);
+          
+          var repoButtonStyle = "";
+          if(isBroken) repoButtonStyle = "bg-danger-subtle text-danger-emphasis";
+          else if(isSelected) repoButtonStyle = "bg-primary-subtle txt-primary-emphasis";
+
+          $("#panelRepoSelection").append(
+            `<button type="button" class="btn border w-100 mb-3 ${repoButtonStyle}" id="btnSelectRepo${i}">
+              <div class="row align-items-center flex-nowrap">
+                <img class="rounded-circle ml-3 col-auto" width="45" height="45" src="${repo.avatarUrl ?? defaultAvatarUrl}" />
+                <div class="col text-start text-break">
+                  <h5 class="mb-0">${repo.name ?? repo.repoName} ${(isDeletable ? "<span class='badge text-bg-danger'>Unsafe</span>" : "")}</h5>
+                  <span class="opacity-75">${isBroken ? repo.error : repo.description}</span><br>
+                  <span class="opacity-25">${repo.repoId}</span>
+                </div>
+                ${isDeletable ? `<i id="btnRemoveRepo${i}" class="col-auto fa-solid fa-times" style="cursor: pointer"></i>` : ""}
+              </div>
+            </button>`
+          );
+          
+          // Only allow deleting this repository if it's manually added by the user
+          if(isDeletable) $(`#btnRemoveRepo${i}`).on("click", function(){
+            removeRepository(repo.repoId);
+          });
+
+          // Only allow selecting this repo if it's not broken
+          if(!isBroken) $(`#btnSelectRepo${i}`).on("click", function(){
+            if(isSelected) selectedReposIndices = selectedReposIndices.filter(sri => sri != i);
+            else selectedReposIndices.push(i);
+            loadRepoSelections();
+
+            // loadRepo(); // Now we reload the repos when the modal is closed!
+          });
+        });
+      }
 
       async function loadRepo(){
         //try{
           $("#loadingOverlay").removeClass("d-none");
           $("#panelErrorView, #panelSongView, #panelGameView").addClass("d-none");
 
-          // Set the main selector
-          $("#imgRepoAvatar").attr("src", selectedRepo.avatarUrl ?? defaultAvatarUrl);
-          $("#lbRepoName").text(selectedRepo.name ?? selectedRepo.repoName);
-          $("#badgeRepoUnsafe").toggleClass("d-none", defaultSettings.userRepos.some(r => r.id == selectedRepo.repoId))
-          
-          var rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/`;
-          if(selectedRepo.useSecondaryBranch == 'true') rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/z64packer/`;
-
           // Reset!
           gamesDb = [];
           database = [];
 
-          // Get the optional games database from the current repo
-          console.log("Loading games database...");
-          var gamesDbLink = rawLink + "z64games.json";
-          var gamesDbResponse = await githubFetch(gamesDbLink);
-          if(gamesDbResponse.ok){
-            // Filter any unwanted values
-            gamesDb = (await gamesDbResponse.json()).filter((g) => typeof(g) == "object");
+          // TODO: SET THIS DEPENDING IF THIS ARE MULTIPLE SELECTIONS OR JUST ONE | Set the main selector
+          var singleRepo = selectedReposIndices.length == 1;
+          var srIndex = selectedReposIndices[0];
+          $("#imgRepoAvatar").attr("src", singleRepo ? (repos[srIndex].avatarUrl ?? defaultAvatarUrl) : defaultAvatarUrl);
+          $("#lbRepoName").text(singleRepo ? (repos[srIndex].name ?? repos[srIndex].repoName) : (selectedReposIndices.length == 0 ? "No Repo Selected" : "Multiple Repositories"));
+          //$("#badgeRepoUnsafe").toggleClass("d-none", defaultSettings.userRepos.some(r => r == selectedRepo.repoId));
 
-          } else{
-            loadErrorView(gamesDbResponse);
-            return;
-          }
+          for(var selectedRepoIndex of selectedReposIndices){
+            var selectedRepo = repos[selectedRepoIndex];
+            var repoName = selectedRepo.name ?? selectedRepo.repoName;
 
-          // Get the database from the current repo
-          console.log("Loading songs database...");
-          var dbLink = rawLink + "z64songs.json";
-          var dbResponse = await githubFetch(dbLink);
-          if(dbResponse.ok){
-            // Load the database | IMMEDIATLY filter DMCA-critical tracks, we don't want any surprises!
-            database = (await dbResponse.json()).filter((s) => typeof(s) == "object" && (showDMCACriticalTracks ? true : (s.isDMCACritical ?? false) == false));
-            database.forEach((item, i) => {
-              // We will use an index to map quickly. But when we want to export/import, we will use the uuid.
-              if(typeof(item) == "string") return;
-              item.index = i;
-            });
-            filteredDatabase = database;
-
-            // Get the saved selections
-            console.log("Loading settings and user selections...");
-            selections = [];
-            var settings = getSettings();
-            var userRepo = settings.userRepos.find(r => r.id == selectedRepo.repoId);
+            // Generate the repo link
+            var rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/`;
+            if(selectedRepo.useSecondaryBranch == 'true') rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/z64packer/`;
             
-            if(userRepo){
-              //console.log("Loading selections... ");
-              //console.log(userRepo);
-              var songIndices = database.filter((s) => userRepo.selections.includes(s.uuid)).map((s) => s.index);
-              selections.push(...songIndices);
+            // Get the optional games database from the current repo
+            console.log(`Loading games database for ${repoName}...`);
+            var gamesDbLink = rawLink + "z64games.json";
+            var gamesDbResponse = await githubFetch(gamesDbLink);
+            if(gamesDbResponse.ok){
+              // Filter any unwanted values
+              gamesDb = [...new Set([
+                ...gamesDb,
+                ...(await gamesDbResponse.json()).filter((g) => typeof(g) == "object")
+              ])];
+
+            } else{
+              loadErrorView(gamesDbResponse);
+              return;
             }
+          
+            // Get the database from the current repo
+            console.log(`Loading songs database for ${repoName}...`);
+            var dbLink = rawLink + "z64songs.json";
+            var dbResponse = await githubFetch(dbLink);
+            if(dbResponse.ok){
+              // Load the database | IMMEDIATLY filter DMCA-critical tracks, we don't want any surprises!
+              database = [...new Set([
+                ...database,
+                ...(await dbResponse.json())
+                  .filter((s) => typeof(s) == "object" && (showDMCACriticalTracks ? true : (s.isDMCACritical ?? false) == false))
+                  .map((s) => {
+                    // Add the repo index to identify it's source later... we'll need it
+                    s.repoIndex = selectedRepoIndex;
+                    return s;
+                  })
+              ])];
 
-            // Show the list of games to the user
-            loadGamesList();
-            updateTotalSelections();
-
-            // Now load the filters
-            var musicGroups = [...new Set(database.map(s => s.game))].sort();
-
-            $("#ddlFilterComposers").empty().append($("<option>", { value: "", text: "Any" }));
-            var composers = [...new Set(database.map(s => s.composers).concat(["Unknown"]).flat().filter(c => c))].sort();
-            composers.forEach(composer => {
-              $("#ddlFilterComposers").append($("<option>", {
-                value: composer,
-                text: composer
-              }));
-            });
-
-            $("#ddlFilterConverters").empty().append($("<option>", { value: "", text: "Any" }));
-            var converters = [...new Set(database.map(s => s.converters).concat(["Unknown"]).flat().filter(c => c))].sort();
-            converters.forEach(converter => {
-              $("#ddlFilterConverters").append($("<option>", {
-                value: converter,
-                text: converter
-              }));
-            });
-
-            // We finish the loading
-            $("#panelSongView, #panelGameView").removeClass("d-none");
-            $("#loadingOverlay").addClass("d-none");
-
-            // Close the repo selection modal if it's open
-            var modalRepoSelection = bootstrap.Modal.getInstance('#modalRepoSelection');    
-            modalRepoSelection?.hide();
-
-            // Save our selections to storage
-            saveSettingsToStorage();
-
-            // Load default song view
-            loadSongsList([]);
-
-          } else{
-            loadErrorView(dbResponse);
-            return;
+            } else{
+              loadErrorView(dbResponse);
+              return;
+            }
           }
+
+          // We will use an index to map quickly. But when we want to export/import, we will use the uuid.
+          database.forEach((item, i) => {
+            if(typeof(item) == "string") return;
+            item.index = i;
+          });
+
+          // Get the saved settings and selections
+          console.log("Loading settings and user selections...");
+          var settings = getSettings();
+          var songIndices = database.filter((s) => settings.selections.includes(s.uuid)).map((s) => s.index);
+          selections = [];
+          selections.push(...songIndices);
+
+          // Now reset and load the filters
+          filteredDatabase = database;
+          var musicGroups = [...new Set(database.map(s => s.game))].sort();
+
+          $("#ddlFilterComposers").empty().append($("<option>", { value: "", text: "Any" }));
+          var composers = [...new Set(database.map(s => s.composers).concat(["Unknown"]).flat().filter(c => c))].sort();
+          composers.forEach(composer => {
+            $("#ddlFilterComposers").append($("<option>", {
+              value: composer,
+              text: composer
+            }));
+          });
+
+          $("#ddlFilterConverters").empty().append($("<option>", { value: "", text: "Any" }));
+          var converters = [...new Set(database.map(s => s.converters).concat(["Unknown"]).flat().filter(c => c))].sort();
+          converters.forEach(converter => {
+            $("#ddlFilterConverters").append($("<option>", {
+              value: converter,
+              text: converter
+            }));
+          });
+
+          // Show the list of games to the user
+          loadGamesList();
+          updateTotalSelections();
+
+          // We finish the loading
+          $("#panelSongView, #panelGameView").removeClass("d-none");
+          $("#loadingOverlay").addClass("d-none");
+
+          // Close the repo selection modal if it's open
+          // TODO: Given that we reload the repos when the modal is closed, this can cause infinite loops... search for a better way of doing this!
+          //var modalRepoSelection = bootstrap.Modal.getInstance('#modalRepoSelection');    
+          //modalRepoSelection?.hide();
+
+          // Save our selections to storage
+          saveSettingsToStorage();
+
+          // Load default song view
+          loadSongsList([]);
+
         //} catch(e){
         //  loadErrorViewWithMessage("An unknown error has ocurred: " + e);
         //}
@@ -1157,6 +1185,7 @@
 
         // Fetch the single file. This is slow, but MUCH faster that bringing the full binaries zip
         // Although, now it doesnt work... >:(
+        var selectedRepo = repos[song.repoIndex];
         var fileLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.binaries}/${song.file}`.replaceAll("//", "/");
         console.log("Downloading... [" + fileLink + "]")
         var fileResponse = await githubFetch(fileLink);
@@ -1171,103 +1200,115 @@
         }
         $("#loadingOverlay").addClass("d-none");
       }
+
       async function downloadSongPack(){
+        $("#loadingOverlay").removeClass("d-none");
         console.log(selections);
 
-        // Create the archive
-        $("#loadingOverlay").removeClass("d-none");
+        // Get the user preferences
+        var maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
+        var useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
+        var volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
+
+        // Create the main archive to download
         var zip = new JSZip();
 
-        // Fetch the full binaries.zip file
-        var binariesLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/binaries.zip`.replaceAll("//", "/");
-        var binariesResponse = await githubFetch(binariesLink);
-        if(binariesResponse.ok){
-          var binaries = await new JSZip().loadAsync(await binariesResponse.blob());
-          // console.log(binaries);
+        // TODO: MAKE IT WORK WITH MULTIPLE REPOS!!!!
+        // Load all binaries.zip to memory, so we can pick the songs later
+        var binaries = [];
+        for(var selectedRepoIndex of selectedReposIndices){
+          var selectedRepo = repos[selectedRepoIndex];
 
-          var maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
-          var useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
-          var volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
+          // Fetch the full binaries.zip file
+          var binariesLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/binaries.zip`.replaceAll("//", "/");
+          var binariesResponse = await githubFetch(binariesLink);
 
-          // Loop every selection
-          for(var songIndex of selections){
-            var song = database[songIndex];
+          if(binariesResponse.ok){
+            var repoBinaries = await new JSZip().loadAsync(await binariesResponse.blob());
+            binaries[selectedRepoIndex] = repoBinaries;
+            // console.log(binaries);
 
-            // Grab the song from our binaries file
-            var songPath = `${selectedRepo.binaries}/${song.file}`.replace("//", "/");
-            var songFile = binaries.file(songPath);
-
-            // If we can't find the file on the binaries, we skip it, but we throw an error!
-            if(!songFile){
-              errorToast(`Couldn't get file from binaries: ${songPath}`);
-              continue;
-            }
-
-            // Abbreviate the name (only if consist of multiple words!)
-            // We just pick the first letter of each word
-            // If is a number, leave it as is
-            var splittedGameName = song.game.split(/\-| /);
-            var shortGameName = splittedGameName.length == 1 ? song.game : splittedGameName.map(x => /^\d+$/.test(x) ? x : x.slice(0, 1)).join('');
-            
-            // Get the final name for the song using the options selected
-            var extension = song.file.split('.').pop();
-            var finalSongName = `${useShortGameNames ? shortGameName : song.game} - ${song.song}`
-            var fileName = `${finalSongName}.${extension}`;
-            if(maintainFolderStructure) fileName = song.file; // <- If we want to maintain the folder structure, we just return the path as it is on github
-            
-            // Iterate over every internal file...
-            var z64File = await new JSZip().loadAsync(songFile.async("blob"));
-            var internalFiles = z64File.file(/(.*?)/);
-            for(var i=0; i<internalFiles.length; i++){
-              var file = internalFiles[i];
-              
-              // Change the internal name on ootrs files (not needed for mmrs)
-              if(useShortGameNames && file.name.endsWith(".meta")){
-                var metaFile = await file.async("text");
-                var lines = metaFile.split('\n');
-                lines[0] = finalSongName; // The first line is the song name!
-                z64File.file(file.name, lines.join('\n'));
-              }
-
-              // Change the internal name on modern files (yaml metadata format)
-              if(useShortGameNames && file.name.endsWith(".metadata")){
-                // TODO: TODO: TODO <<<------------------------------------------------------------------------------------------------<
-                var metadataYaml = YAML.parse(await file.async("text"));
-                metadataYaml["metadata"]["display name"] = finalSongName;
-                z64File.file(file.name, YAML.stringify(metadataYaml));
-              }
-
-              // Modify the volume inside the seq file
-              if(volumePreAmplifying != 0 && (file.name.endsWith(".seq") || file.name.endsWith(".zseq"))){
-                // I think this requires compatibility from the browser... check if it works in others than chrome
-                var seq = await file.async("uint8array");
-                SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
-                z64File.file(file.name, seq);
-              }
-            }
-            
-            // Add the file
-            //zip.file(fileName, await songFile.async("blob"));
-            console.log("Saving zip file: ", fileName);
-            zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
-
-            // Download the song from the github repository (OLD fetch version | changed because slow)
-            /*var fileLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.binaries}/${song.file}`;
-            var fileResponse = await fetch(fileLink, { cache: "no-store" });
-            console.log(fileLink);
-
-            if(fileResponse.ok){
-              // Add the thing to the archive
-              var extension = song.file.split('.').pop();
-              var fileName = `${song.game} - ${song.song}.${extension}`;
-              zip.file(fileName, await fileResponse.blob());
-            }*/
+          } else{
+            errorResponseToast(binariesResponse);
           }
-
-        } else{
-          errorResponseToast(binariesResponse);
         }
 
+        // Loop every selection
+        for(var songIndex of selections){
+          var song = database[songIndex];
+          var repoIndex = song.repoIndex;
+
+          // Grab the song from our binaries file
+          var songPath = `${repos[repoIndex].binaries}/${song.file}`.replace("//", "/");
+          var songFile = binaries[repoIndex].file(songPath);
+
+          // If we can't find the file on the binaries, we skip it, but we throw an error!
+          if(!songFile){
+            errorToast(`Couldn't get file from binaries: ${songPath}`);
+            continue;
+          }
+
+          // Abbreviate the name (only if consist of multiple words!)
+          // We just pick the first letter of each word
+          // If is a number, leave it as is
+          var splittedGameName = song.game.split(/\-| /);
+          var shortGameName = splittedGameName.length == 1 ? song.game : splittedGameName.map(x => /^\d+$/.test(x) ? x : x.slice(0, 1)).join('');
+          
+          // Get the final name for the song using the options selected
+          var extension = song.file.split('.').pop();
+          var finalSongName = `${useShortGameNames ? shortGameName : song.game} - ${song.song}`
+          var fileName = `${finalSongName}.${extension}`;
+          if(maintainFolderStructure) fileName = song.file; // <- If we want to maintain the folder structure, we just return the path as it is on github
+          
+          // Iterate over every internal file...
+          var z64File = await new JSZip().loadAsync(songFile.async("blob"));
+          var internalFiles = z64File.file(/(.*?)/);
+          for(var i=0; i<internalFiles.length; i++){
+            var file = internalFiles[i];
+            
+            // Change the internal name on ootrs files (not needed for mmrs)
+            if(useShortGameNames && file.name.endsWith(".meta")){
+              var metaFile = await file.async("text");
+              var lines = metaFile.split('\n');
+              lines[0] = finalSongName; // The first line is the song name!
+              z64File.file(file.name, lines.join('\n'));
+            }
+
+            // Change the internal name on modern files (yaml metadata format)
+            if(useShortGameNames && file.name.endsWith(".metadata")){
+              // TODO: TODO: TODO <<<------------------------------------------------------------------------------------------------<
+              var metadataYaml = YAML.parse(await file.async("text"));
+              metadataYaml["metadata"]["display name"] = finalSongName;
+              z64File.file(file.name, YAML.stringify(metadataYaml));
+            }
+
+            // Modify the volume inside the seq file
+            if(volumePreAmplifying != 0 && (file.name.endsWith(".seq") || file.name.endsWith(".zseq"))){
+              // I think this requires compatibility from the browser... check if it works in others than chrome
+              var seq = await file.async("uint8array");
+              SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
+              z64File.file(file.name, seq);
+            }
+          }
+          
+          // Add the file
+          //zip.file(fileName, await songFile.async("blob"));
+          console.log("Saving zip file: ", fileName);
+          zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
+
+          // Download the song from the github repository (OLD fetch version | changed because slow)
+          /*var fileLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.binaries}/${song.file}`;
+          var fileResponse = await fetch(fileLink, { cache: "no-store" });
+          console.log(fileLink);
+
+          if(fileResponse.ok){
+            // Add the thing to the archive
+            var extension = song.file.split('.').pop();
+            var fileName = `${song.game} - ${song.song}.${extension}`;
+            zip.file(fileName, await fileResponse.blob());
+          }*/
+        }
+        
         // We finally, download the generated zip
         var blob = await zip.generateAsync({ type: "blob" });
         saveAs(blob, `${selectedRepo.name} - Song Pack - ${Date.now()}.zip`);
@@ -1284,6 +1325,7 @@
       $(function(){
         init();
         $("#modalSongPreview").on("hide.bs.modal", stopPreview);
+        $("#modalRepoSelection").on("hide.bs.modal", loadRepo);
         $("#cbxViewComposers, #cbxViewConverters, #cbxViewCategories, #cbxViewFormat, #cbxViewNotes, #rgGithubFetchDelay").on("change", function(){
           updateSongViewOptions();
           saveSettings();

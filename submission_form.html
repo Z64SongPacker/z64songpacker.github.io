@@ -1012,6 +1012,11 @@
 
       // ----- DOCUMENT READY -----
       $(function(){
+        // Nav events
+        $("#btnGoBackToPacker").on("click", function(){
+          window.open("/", "_self").focus();
+        });
+
         // Submit mappings
         $("#btnLogin").on("click", userLogin);
         $("#btnSubmissionDetailsBack").on("click", loadRepoSelection);
@@ -1109,6 +1114,8 @@
     </div>
 
     <nav class="navbar navbar-expand-lg bg-body-tertiary" style="padding-left: 8px; height: 46.5px;">
+      <i class="fa-solid fa-lg fa-arrow-left nav-link me-2 ms-1 mt-1" style="cursor: pointer;" title="Go back to packer" id="btnGoBackToPacker"></i>
+
       <a class="navbar-brand text-secondary" style="width: 242px" href="#">
         Z64 Submission Form
       </a>

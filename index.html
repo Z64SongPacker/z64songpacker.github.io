@@ -138,7 +138,7 @@
           // Although every single github file has a 5 min cache lifespan, but we should respect that!
           // If we don't want to wait, then we have to login (implement that in the future...)
           // For 429 retries, we use "reload", since we should NEVER cache it
-          var response = await fetch(link, {
+          var response = await fetch(link.replaceAll("#", "%23"), {
             headers: {
               'Accept': 'application/octet-stream'
             },
@@ -1096,7 +1096,7 @@
 
           } else{
             // Load the preview
-            $("#asrcSongPreview").attr("src", preview);
+            $("#asrcSongPreview").attr("src", preview.replaceAll("#", "%23"));
 
             // Reload the audio player
             var audioPlayer = $("#apSongPreview")[0];

@@ -560,6 +560,7 @@
           $("#imgRepoAvatar").attr("src", singleRepo ? (repos[srIndex].avatarUrl ?? defaultAvatarUrl) : defaultAvatarUrl);
           $("#lbRepoName").text(singleRepo ? (repos[srIndex].name ?? repos[srIndex].repoName) : (selectedReposIndices.length == 0 ? "No Repo Selected" : "Multiple Repositories"));
           //$("#badgeRepoUnsafe").toggleClass("d-none", defaultSettings.userRepos.some(r => r == selectedRepo.repoId));
+          $("#btnViewRepositoryOnGithub").toggleClass("d-none", !singleRepo);
 
           for(var selectedRepoIndex of selectedReposIndices){
             var selectedRepo = repos[selectedRepoIndex];
@@ -1061,7 +1062,9 @@
         var previewList = [];
         if(song.preview instanceof Array) previewList = song.preview;
         else previewList = [song.preview];
+
         console.log(`Found ${previewList.length} preview(s) for song ${song.song}`);
+        var selectedRepo = repos[song.repoIndex];
 
         // Loop on each preview and add it for play
         previewList.forEach(preview => {
@@ -1350,7 +1353,11 @@
         
         // ----- TOP LEVEL BUTTONS -----
         $("#btnViewRepositoryOnGithub").on("click", function(){
-          window.open(`https://github.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}`, '_blank').focus();
+          // TODO: Search for a better way of doing this for multiple repositories
+          for(var selectedRepoIndex of selectedReposIndices){
+            var selectedRepo = repos[selectedRepoIndex];
+            window.open(`https://github.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}`, '_blank').focus();
+          }
         });
         $("#btnSaveSelections").on("click", function(){
           saveSettings(false);

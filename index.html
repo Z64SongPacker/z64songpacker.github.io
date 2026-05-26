@@ -185,6 +185,7 @@
         settings.viewConverters = $("#cbxViewConverters").is(":checked");
         settings.viewCategories = $("#cbxViewCategories").is(":checked");
         settings.viewFormat = $("#cbxViewFormat").is(":checked");
+        settings.viewSourceRepository = $("#cbxViewSourceRepository").is(":checked");
         settings.viewNotes = $("#cbxViewNotes").is(":checked");
         settings.maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
         settings.useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
@@ -421,6 +422,7 @@
           $("#cbxViewConverters").prop('checked', settings.viewConverters);
           $("#cbxViewCategories").prop('checked', settings.viewCategories);
           $("#cbxViewFormat").prop('checked', settings.viewFormat);
+          $("#cbxViewSourceRepository").prop('checked', settings.viewSourceRepository);
           $("#cbxViewNotes").prop('checked', settings.viewNotes);
           $("#cbxMaintainFolderStructure").prop('checked', settings.maintainFolderStructure);
           $("#cbxUseShortGameNames").prop('checked', settings.useShortGameNames);
@@ -559,7 +561,7 @@
           var srIndex = selectedReposIndices[0];
           $("#imgRepoAvatar").attr("src", singleRepo ? (repos[srIndex].avatarUrl ?? defaultAvatarUrl) : defaultAvatarUrl);
           $("#lbRepoName").text(singleRepo ? (repos[srIndex].name ?? repos[srIndex].repoName) : (selectedReposIndices.length == 0 ? "No Repo Selected" : "Multiple Repositories"));
-          //$("#badgeRepoUnsafe").toggleClass("d-none", defaultSettings.userRepos.some(r => r == selectedRepo.repoId));
+          $("#badgeRepoUnsafe").toggleClass("d-none", !selectedReposIndices.some(i => i >= defaultSettings.userRepos.length));
           $("#btnViewRepositoryOnGithub").toggleClass("d-none", !singleRepo);
 
           for(var selectedRepoIndex of selectedReposIndices){
@@ -831,6 +833,10 @@
             var hasUpdated = songsOfSeries.some(s => Date.parse(s.lastUpdateDate) >= offsetTimestamp);
             var badgeAppend = (hasNew || hasUpdated) ? ` <span class="badge text-bg-secondary">${hasNew ? "New" : "Updated"}</span>` : "";
 
+            // Check if it's unsafe
+            var isUnsafe = songsOfSeries.some(s => s.repoIndex >= defaultSettings.userRepos.length);
+            if(isUnsafe) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
+
             // Append the series collapse nav item
             $("#panelGames").append(
               `<div class="btn-series row g-0 ${isSelected ? "active" : ""}" id="btnSeries${i}" data-series="${game}" data-series-index="${i}">
@@ -894,6 +900,10 @@
         var hasUpdated = songsOfGame.some(s => Date.parse(s.lastUpdateDate) >= offsetTimestamp);
         var badgeAppend = (hasNew || hasUpdated) ? ` <span class="badge text-bg-secondary">${hasNew ? "New" : "Updated"}</span>` : "";
 
+        // Check if it's unsafe
+        var isUnsafe = songsOfGame.some(s => s.repoIndex >= defaultSettings.userRepos.length);
+        if(isUnsafe) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
+
         // Append the game nav item
         $(panelId).append(
           `<div class="btn-game row g-0" id="btnGame${i}" data-game="${game}" data-game-index="${i}">
@@ -950,15 +960,16 @@
           );
           var isSelected = selections.includes(s.index);
           var hasPreview = !! s.preview; // <-- We check if the preview exists first
-          var isDMCACritical = s.isDMCACritical ?? false;
           var hasNotes = !! s.notes;
-
+          
           var offsetDate = new Date();
           offsetDate.setDate(offsetDate.getDate() - 5);
           var isNew = Date.parse(s.creationDate) >= offsetDate;
           var isUpdated = Date.parse(s.lastUpdateDate) >= offsetDate;
           var badgeAppend = (isNew || isUpdated) ? ` <span class="badge text-bg-secondary">${isNew ? "New" : "Updated"}</span>` : "";
-          if(isDMCACritical) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
+          
+          var isUnsafe = s.repoIndex >= defaultSettings.userRepos.length;
+          if(isUnsafe) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
 
           // LIST VIEW
           var isListView = $("#ddlLayout").val() == "list";
@@ -981,10 +992,13 @@
                         <div class='col mt-0'>${categories.join(" ")}</div>
                       </div>
                     </div>
-                    <span class="format col text-end">
-                      <i class="fa-solid fa-file-audio fa-fw"></i> <span class='opacity-50'>${isOOTRS ? "OOTRS" : "MMRS"}
-                      ${s.usesFormmask ? " formmask" : (s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla")}</span>
-                    </span>
+                    <div class="format-and-source col text-end lh-sm">
+                      <div class="format w-100">
+                        <i class="fa-solid fa-file-audio fa-fw"></i> <span class='opacity-50'>${isOOTRS ? "OOTRS" : "MMRS"}
+                        ${s.usesFormmask ? " formmask" : (s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla")}</span>
+                      </div>
+                      <div class="source-repository w-100 opacity-25">${repos[s.repoIndex].name}</div>
+                    </div>
                     <i id="btnDownload${i}" class="col-auto fa-solid fa-download" title="Download this song"></i>
                   </div>
                   ${hasNotes ? ("<div class='notes border-top opacity-50 mt-2'>" + s.notes + "</div>") : ""}
@@ -1017,10 +1031,13 @@
                     "<span class='opacity-50 mt-0'>" + s.notes + "</span>" +
                     "</div>"
                   ) : ""}
-                  <span class="format border-top mt-2 pt-2 row g-1">
-                    <i class="fa-solid fa-file-audio fa-fw col-auto"></i>
-                    <div class='col opacity-50 mt-0'>${isOOTRS ? "OOTRS" : "MMRS"}${s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla bank"}</span>
-                  </span>
+                  <div class="format-and-source border-top mt-2 pt-2 lh-sm">
+                    <div class="format row g-1">
+                      <i class="fa-solid fa-file-audio fa-fw col-auto"></i>
+                      <div class='col opacity-50 mt-0'>${isOOTRS ? "OOTRS" : "MMRS"}${s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla bank"}</div>
+                    </div>
+                    <div class="source-repository w-100 opacity-25">${repos[s.repoIndex].name}</div>
+                  </div>
                 </div>
               </div>`
             );
@@ -1124,6 +1141,7 @@
         $("#panelSongView").toggleClass("hide-converters", !$("#cbxViewConverters").is(":checked"));
         $("#panelSongView").toggleClass("hide-categories", !$("#cbxViewCategories").is(":checked"));
         $("#panelSongView").toggleClass("hide-format", !$("#cbxViewFormat").is(":checked"));
+        $("#panelSongView").toggleClass("hide-source-repository", !$("#cbxViewSourceRepository").is(":checked"));
         $("#panelSongView").toggleClass("hide-notes", !$("#cbxViewNotes").is(":checked"));
       }
 
@@ -1329,7 +1347,7 @@
         init();
         $("#modalSongPreview").on("hide.bs.modal", stopPreview);
         $("#modalRepoSelection").on("hide.bs.modal", loadRepo);
-        $("#cbxViewComposers, #cbxViewConverters, #cbxViewCategories, #cbxViewFormat, #cbxViewNotes, #rgGithubFetchDelay").on("change", function(){
+        $("#cbxViewComposers, #cbxViewConverters, #cbxViewCategories, #cbxViewFormat, #cbxViewSourceRepository, #cbxViewNotes, #rgGithubFetchDelay").on("change", function(){
           updateSongViewOptions();
           saveSettings();
         });
@@ -1574,6 +1592,12 @@
             <div class="form-check form-check-inline ms-3">
               <input class="form-check-input" type="checkbox" id="cbxViewFormat">
               <label class="form-check-label" for="cbxViewFormat">Show file format</label>
+            </div>
+          </li>
+          <li>
+            <div class="form-check form-check-inline ms-3">
+              <input class="form-check-input" type="checkbox" id="cbxViewSourceRepository">
+              <label class="form-check-label" for="cbxViewSourceRepository">Show source repository</label>
             </div>
           </li>
           <li>

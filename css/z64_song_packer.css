@@ -68,12 +68,21 @@
 #panelSongView.hide-converters .converters{
   display: none;
 }
+
 #panelSongView.hide-categories .categories{
+  display: none;
+}
+
+#panelSongView.hide-format.hide-source-repository .format-and-source{
   display: none;
 }
 #panelSongView.hide-format .format{
   display: none;
 }
+#panelSongView.hide-source-repository .source-repository{
+  display: none;
+}
+
 #panelSongView.hide-notes .notes{
   display: none;
 }

@@ -1334,13 +1334,22 @@
               gameName = abbreviatedName;
 
             } else if(gameNamesFormat == "dynamic"){
-              
+              // Try our best to be under the max length (48 for most console randos)
+              // Prioritize using the longer names
+              // If too long use their shorter variants
+              if(`${song.game} - ${song.song}`.length <= maxLength) gameName = song.game;
+              else if(`${shortName} - ${song.song}`.length <= maxLength) gameName = shortName;
+              else gameName = abbreviatedName;
             }
           }
           
           // Get the final name for the song using the options selected
           var extension = song.file.split('.').pop();
           var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(`${gameName} - ${song.song}`);
+
+          // For testing:
+          finalSongName = `${finalSongName.length}-${finalSongName}`
+
           var fileName = `${finalSongName}.${extension}`;
           if(maintainFolderStructure) fileName = song.file; // <- If we want to maintain the folder structure, we just return the path as it is on github
           

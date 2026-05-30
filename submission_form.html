@@ -94,6 +94,7 @@
       import { restEndpointMethods } from "https://esm.sh/@octokit/plugin-rest-endpoint-methods";
       import * as bootstrap from "bootstrap";
       import { MMCategories } from "./js/mmcategories.js";
+      import { SeqUtils } from "./js/sequtils.js";
       import YAML from 'yaml';
 
       var authToken = "";
@@ -117,6 +118,12 @@
 
       // Modifying:
       var songToEdit = undefined;
+
+      console.log("TESTS");
+      console.log(SeqUtils.convertIfRomanNumeral("I"));
+      console.log(SeqUtils.convertIfRomanNumeral("II"));
+      console.log(SeqUtils.convertIfRomanNumeral("III"));
+      console.log(SeqUtils.convertIfRomanNumeral("IV"));
 
       // Custom octokit to prevent error, abuses, and rate limiting
       const MyOctokit = Octokit.plugin(retry, throttling);

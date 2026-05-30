@@ -187,8 +187,11 @@
         settings.viewFormat = $("#cbxViewFormat").is(":checked");
         settings.viewSourceRepository = $("#cbxViewSourceRepository").is(":checked");
         settings.viewNotes = $("#cbxViewNotes").is(":checked");
+
         settings.maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
-        settings.useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
+        settings.includeSelectionsAndSettings = $("#cbxIncludeSelectionsAndSettings").is(":checked");
+        settings.excludeUnsafeTracks = $("#cbxExcludeUnsafeTracks").is(":checked");
+        settings.gameNamesFormat = $("#ddlGameNamesFormat").val();
         settings.volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
 
         // Selections now are universal, since we are using uuids
@@ -424,8 +427,11 @@
           $("#cbxViewFormat").prop('checked', settings.viewFormat);
           $("#cbxViewSourceRepository").prop('checked', settings.viewSourceRepository);
           $("#cbxViewNotes").prop('checked', settings.viewNotes);
+
           $("#cbxMaintainFolderStructure").prop('checked', settings.maintainFolderStructure);
-          $("#cbxUseShortGameNames").prop('checked', settings.useShortGameNames);
+          $("#cbxIncludeSelectionsAndSettings").prop('checked', settings.includeSelectionsAndSettings);
+          $("#cbxExcludeUnsafeTracks").prop('checked', settings.excludeUnsafeTracks);
+          $("#ddlGameNamesFormat").val(settings.gameNamesFormat || "dynamic");
           $("#rgVolumePreAmplifying").val(settings.volumePreAmplifying).trigger("input");
 
           // Now load their selections
@@ -818,7 +824,7 @@
             if(checkState != "") $(`#cbxSeries${i}`).prop(checkState, true);
             
             // Filter the games inside this series
-            var gamesOfSeries = gamesDb.filter(g => g.series == game).map(g => g.game).sort();
+            var gamesOfSeries = [...new Set(gamesDb.filter(g => g.series == game).map(g => g.game))].sort();
             gamesOfSeries = gamesOfSeries.filter(g => g.toLowerCase().includes(searchFilter.toLowerCase()));
 
             // If there are no games inside this series, then skip it
@@ -971,6 +977,12 @@
           var isUnsafe = s.repoIndex >= defaultSettings.userRepos.length;
           if(isUnsafe) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
 
+          var format = isOOTRS ? "OOTRS" : "MMRS";
+          if(s.usesFormmask) format += " formmask";
+          else if(s.usesCustomSamples) format += " custom samples";
+          else if(s.usesCustomBank) format += " custom bank";
+          else format += " vanilla";
+          
           // LIST VIEW
           var isListView = $("#ddlLayout").val() == "list";
           if(isListView){
@@ -994,8 +1006,7 @@
                     </div>
                     <div class="format-and-source col text-end lh-sm">
                       <div class="format w-100">
-                        <i class="fa-solid fa-file-audio fa-fw"></i> <span class='opacity-50'>${isOOTRS ? "OOTRS" : "MMRS"}
-                        ${s.usesFormmask ? " formmask" : (s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla")}</span>
+                        <i class="fa-solid fa-file-audio fa-fw"></i> <span class='opacity-50'>${format}</span>
                       </div>
                       <div class="source-repository w-100 opacity-25">${repos[s.repoIndex].name}</div>
                     </div>
@@ -1034,7 +1045,7 @@
                   <div class="format-and-source border-top mt-2 pt-2 lh-sm">
                     <div class="format row g-1">
                       <i class="fa-solid fa-file-audio fa-fw col-auto"></i>
-                      <div class='col opacity-50 mt-0'>${isOOTRS ? "OOTRS" : "MMRS"}${s.usesCustomBank ? (" custom bank" + (s.usesCustomSamples ? " and samples" : "")) : " vanilla bank"}</div>
+                      <div class='col opacity-50 mt-0'>${format}</div>
                     </div>
                     <div class="source-repository w-100 opacity-25">${repos[s.repoIndex].name}</div>
                   </div>
@@ -1228,13 +1239,19 @@
 
         // Get the user preferences
         var maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
-        var useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
+        var includeSelectionsAndSettings = $("#cbxIncludeSelectionsAndSettings").is(":checked");
+        var excludeUnsafeTracks = $("#cbxExcludeUnsafeTracks").is(":checked");
+        var gameNamesFormat = $("#ddlGameNamesFormat").val();
+        //var useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
         var volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
 
         // Create the main archive to download
         var zip = new JSZip();
 
-        // TODO: MAKE IT WORK WITH MULTIPLE REPOS!!!!
+        if(includeSelectionsAndSettings){
+          // TODO: INCLUDE THE SELECTIONS AND SETTINGS!!!
+        }
+
         // Load all binaries.zip to memory, so we can pick the songs later
         var binaries = [];
         for(var selectedRepoIndex of selectedReposIndices){
@@ -1259,6 +1276,9 @@
           var song = database[songIndex];
           var repoIndex = song.repoIndex;
 
+          // Exclude the unsafe tracks if the user wants it for this specific download
+          if(excludeUnsafeTracks && repoIndex >= defaultSettings.userRepos.length) continue;
+
           // Grab the song from our binaries file
           var songPath = `${repos[repoIndex].binaries}/${song.file}`.replace("//", "/");
           var songFile = binaries[repoIndex].file(songPath);
@@ -1268,16 +1288,59 @@
             errorToast(`Couldn't get file from binaries: ${songPath}`);
             continue;
           }
+          
+          // TODO: IMPLEMENT METHODS... TAKE INTO CONSIDERATION MAX LENGTH    
+          var gameName = song.game;
+          if(gameNamesFormat != "full"){
+            var maxLength = 48; // Maybe allow user input for this one
+            var game = gamesDb.find(g => g.game == song.game);
+            
+            // Get the short name
+            // If not available, use the full name... we don't know exactly how to shorten it
+            var shortName = game.short_name || game.game;
 
-          // Abbreviate the name (only if consist of multiple words!)
-          // We just pick the first letter of each word
-          // If is a number, leave it as is
-          var splittedGameName = song.game.split(/\-| /);
-          var shortGameName = splittedGameName.length == 1 ? song.game : splittedGameName.map(x => /^\d+$/.test(x) ? x : x.slice(0, 1)).join('');
+            // Get the abbreviated name
+            // If not available, generate it ourselves
+            var abbreviatedName = game.abbreviated_name;
+            if(!abbreviatedName){
+              // Use the short name if available to create the abbreviation
+              // TODO: Consult if this is good or not...
+              var splittedGameName = song.game.replace(/[:\(\)]/g, "").split(/\-| /);
+              var splittedShortName = shortName.split(/\-| /); // No need to trim for short name check
+
+              // If only one word, use that one fully
+              if(splittedGameName.length == 1){
+                abbreviatedName = song.game;
+
+              } else if(splittedShortName.length == 1){
+                abbreviatedName = shortName;
+
+              // If not, create our own abbreviated name!
+              // - First letter of each word (respect case)
+              // - Leave numbers fully
+              // - Convert roman numerals to numbers
+              } else{
+                abbreviatedName = splittedGameName.map(x => {
+                  x = SeqUtils.convertIfRomanNumeral(x);
+                  return /^\d+$/.test(x) ? x : x.slice(0, 1);
+                }).join("");
+              }
+            }
+            
+            if(gameNamesFormat == "short"){
+              gameName = shortName;
+
+            } else if(gameNamesFormat == "abbreviated"){
+              gameName = abbreviatedName;
+
+            } else if(gameNamesFormat == "dynamic"){
+              
+            }
+          }
           
           // Get the final name for the song using the options selected
           var extension = song.file.split('.').pop();
-          var finalSongName = `${useShortGameNames ? shortGameName : song.game} - ${song.song}`
+          var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(`${gameName} - ${song.song}`);
           var fileName = `${finalSongName}.${extension}`;
           if(maintainFolderStructure) fileName = song.file; // <- If we want to maintain the folder structure, we just return the path as it is on github
           
@@ -1288,7 +1351,7 @@
             var file = internalFiles[i];
             
             // Change the internal name on ootrs files (not needed for mmrs)
-            if(useShortGameNames && file.name.endsWith(".meta")){
+            if(gameNamesFormat != "full" && file.name.endsWith(".meta")){
               var metaFile = await file.async("text");
               var lines = metaFile.split('\n');
               lines[0] = finalSongName; // The first line is the song name!
@@ -1296,7 +1359,7 @@
             }
 
             // Change the internal name on modern files (yaml metadata format)
-            if(useShortGameNames && file.name.endsWith(".metadata")){
+            if(gameNamesFormat != "full" && file.name.endsWith(".metadata")){
               // TODO: TODO: TODO <<<------------------------------------------------------------------------------------------------<
               var metadataYaml = YAML.parse(await file.async("text"));
               metadataYaml["metadata"]["display name"] = finalSongName;
@@ -1492,6 +1555,7 @@
             <span class="me-1">Download song pack</span>
           </button>
           <ul class="dropdown-menu pb-0">
+
             <li><h6 class="dropdown-header">Export options:</h6></li>
             <li>
               <div class="form-check form-check-inline ms-3">
@@ -1501,9 +1565,25 @@
             </li>
             <li>
               <div class="form-check form-check-inline ms-3">
-                <input class="form-check-input" type="checkbox" id="cbxUseShortGameNames">
-                <label class="form-check-label" for="cbxUseShortGameNames">Use short game names</label>
+                <input class="form-check-input" type="checkbox" id="cbxIncludeSelectionsAndSettings">
+                <label class="form-check-label" for="cbxIncludeSelectionsAndSettings">Include selections and settings</label>
               </div>
+            </li>
+            <li>
+              <div class="form-check form-check-inline ms-3">
+                <input class="form-check-input" type="checkbox" id="cbxExcludeUnsafeTracks">
+                <label class="form-check-label" for="cbxExcludeUnsafeTracks">Exclude unsafe tracks</label>
+              </div>
+            </li>
+            <hr class="my-2">
+            <li><h6 class="dropdown-header">Game names format:</h6></li>
+            <li class="px-3">
+              <select class="form-control mb-3" id="ddlGameNamesFormat">
+                <option value="dynamic">Dynamic length</option>
+                <option value="full">Full names</option>
+                <option value="short">Short names</option>
+                <option value="abbreviated">Abbreviated names</option>
+              </select>
             </li>
             <hr class="my-2">
             <li><h6 class="dropdown-header">Volume pre-amplifying:</h6></li>

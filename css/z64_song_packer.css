@@ -6,13 +6,20 @@
   top: 0;
   left: 0;
   color: var(--bs-primary-text-emphasis);
-  background-color: rgba(24, 24, 24, .6);
+  background-color: rgba(24, 24, 24, .7);
   z-index: 5600;
 }
 .loading-overlay i{
   position: absolute;
-  top: 47%;
-  left: 47%;
+  top: calc(50% - 24px);
+  left: calc(50% - 24px);
+}
+.loading-overlay div{
+  position: absolute;
+  text-align: center;
+  top: calc(50% + 48px);
+  width: 100%;
+  font-size: large;
 }
 
 .btn-game, .btn-series{

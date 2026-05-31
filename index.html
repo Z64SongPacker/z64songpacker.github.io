@@ -270,7 +270,7 @@
       }
 
       async function loadSettingsFromFile(event){
-        $("#loadingOverlay").removeClass("d-none");
+        showLoadingOverlay();
         try{
           var file = event.target.files[0];
           var fileName = file.name;
@@ -361,7 +361,7 @@
       }
 
       async function addRepository(){
-        $("#loadingOverlay").removeClass("d-none");
+        showLoadingOverlay();
         var newRepo = $("#txtAddRepository").val() ?? "";
         var parts = newRepo.split("/");
 
@@ -392,14 +392,14 @@
         }
 
         await init();
-        $("#loadingOverlay").addClass("d-none");
+        hideLoadingOverlay();
       }
       async function removeRepository(repoId){
         console.log("Removing repo: " + repoId);
-        $("#loadingOverlay").removeClass("d-none");
+        showLoadingOverlay();
         saveSettingsToStorage(repoId, false);
         await init();
-        $("#loadingOverlay").addClass("d-none");
+        hideLoadingOverlay();
       }
 
 
@@ -408,7 +408,7 @@
       
       async function init(){
         // We don't need auth for the stuff we will be doing here...
-        $("#loadingOverlay").removeClass("d-none");
+        showLoadingOverlay();
 
         try{
           var settings = getSettings();
@@ -448,6 +448,8 @@
             var owner = idSplitted[0];
             var repo = idSplitted[1];
             var defaultBranch = idSplitted[2];
+
+            setLoadingOverlayText(`${repo} | Loading properties...`);
 
             // Get the z64musicpacker.properties from this repo
             // From main branch: https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/z64packer/z64musicpacker.properties
@@ -501,7 +503,7 @@
 
           // Finally, load the repos!
           await loadRepo();
-          $("#loadingOverlay").addClass("d-none");
+          hideLoadingOverlay();
 
         } catch(e){
           errorToast("An fatal error ocurred while loading! Reseting settings...");
@@ -555,7 +557,7 @@
 
       async function loadRepo(){
         //try{
-          $("#loadingOverlay").removeClass("d-none");
+          showLoadingOverlay();
           $("#panelErrorView, #panelSongView, #panelGameView").addClass("d-none");
 
           // Reset!
@@ -579,7 +581,7 @@
             if(selectedRepo.useSecondaryBranch == 'true') rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/z64packer/`;
             
             // Get the optional games database from the current repo
-            console.log(`Loading games database for ${repoName}...`);
+            setLoadingOverlayText(`${repoName} | Loading games database...`);
             var gamesDbLink = rawLink + "z64games.json";
             var gamesDbResponse = await githubFetch(gamesDbLink);
             if(gamesDbResponse.ok){
@@ -595,7 +597,7 @@
             }
           
             // Get the database from the current repo
-            console.log(`Loading songs database for ${repoName}...`);
+            setLoadingOverlayText(`${repoName} | Loading songs database...`);
             var dbLink = rawLink + "z64songs.json";
             var dbResponse = await githubFetch(dbLink);
             if(dbResponse.ok){
@@ -658,7 +660,7 @@
 
           // We finish the loading
           $("#panelSongView, #panelGameView").removeClass("d-none");
-          $("#loadingOverlay").addClass("d-none");
+          hideLoadingOverlay();
 
           // Close the repo selection modal if it's open
           // TODO: Given that we reload the repos when the modal is closed, this can cause infinite loops... search for a better way of doing this!
@@ -686,7 +688,7 @@
       function loadErrorViewWithMessage(errorMessage){
         $("#lbErrorDescription").html(errorMessage);
         $("#panelErrorView").removeClass("d-none");
-        $("#loadingOverlay").addClass("d-none");
+        hideLoadingOverlay();
       }
 
       function resetFilters(){
@@ -794,10 +796,6 @@
         // And now, combine them both!
         var gamesAndSeries = [...new Set(series.concat(gamesWithNoSeries))].sort();
 
-        // TODO: ADD NEW AND UPDATED BADGES TO GAMES!
-        // For that we need optimize how selections are handled. Since we rebuild the whole game list when
-        // a new selection is made, we need 1) cache certain values or 2) rebuild only the necessary portions of the list
-        
         // Now, loop everything and add it to the list
         gamesAndSeries.forEach((game, i) => {
 
@@ -1213,7 +1211,10 @@
       // ------------- DOWNLOADS --------------
 
       async function downloadSingleFile(song){
-        $("#loadingOverlay").removeClass("d-none");
+        showLoadingOverlay();
+        var extension = song.file.split('.').pop();
+        var songName = `${song.game} - ${song.song}.${extension}`;
+        setLoadingOverlayText(`Downloading ${songName}...`)
 
         // Fetch the single file. This is slow, but MUCH faster that bringing the full binaries zip
         // Although, now it doesnt work... >:(
@@ -1223,19 +1224,18 @@
         var fileResponse = await githubFetch(fileLink);
         if(fileResponse.ok){
           // Finally, download the file as a blob
-          var extension = song.file.split('.').pop();
           var blob = await fileResponse.blob();
-          saveAs(blob, `${song.game} - ${song.song}.${extension}`);
+          saveAs(blob, songName);
 
         } else{
           errorResponseToast(fileResponse);
         }
-        $("#loadingOverlay").addClass("d-none");
+        hideLoadingOverlay();
       }
 
       async function downloadSongPack(){
-        $("#loadingOverlay").removeClass("d-none");
-        console.log(selections);
+        showLoadingOverlay();
+        setLoadingOverlayText("Downloading song pack...");
 
         // Get the user preferences
         var maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
@@ -1262,6 +1262,7 @@
           var selectedRepo = repos[selectedRepoIndex];
 
           // Fetch the full binaries.zip file
+          setLoadingOverlayText(`${selectedRepo.name} | Fetching binaries...`);
           var binariesLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/binaries.zip`.replaceAll("//", "/");
           var binariesResponse = await githubFetch(binariesLink);
 
@@ -1276,7 +1277,9 @@
         }
 
         // Loop every selection
+        var songCount = 0;
         for(var songIndex of selections){
+          songCount++;
           var song = database[songIndex];
           var repoIndex = song.repoIndex;
 
@@ -1390,7 +1393,8 @@
           
           // Add the file
           //zip.file(fileName, await songFile.async("blob"));
-          console.log("Saving zip file: ", fileName);
+          console.log(`Zipping: ${fileName}`);
+          setLoadingOverlayText(`Zipping... ${songCount} files`);
           zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
 
           // Download the song from the github repository (OLD fetch version | changed because slow)
@@ -1407,12 +1411,24 @@
         }
         
         // We finally, download the generated zip
+        setLoadingOverlayText(`Done!`);
         var blob = await zip.generateAsync({ type: "blob" });
         saveAs(blob, `${selectedRepo.name} - Song Pack - ${Date.now()}.zip`);
 
         // Also save our settings and selections and finish
         saveSettingsToStorage();
+        hideLoadingOverlay();
+      }
+
+      function showLoadingOverlay(){
+        $("#loadingText").text("");
+        $("#loadingOverlay").removeClass("d-none");
+      }
+      function hideLoadingOverlay(){
         $("#loadingOverlay").addClass("d-none");
+      }
+      function setLoadingOverlayText(text){
+        $("#loadingText").text(text);
       }
 
 
@@ -1434,15 +1450,18 @@
 
         $("#cbxSelectAll").on("change", function(){
           var checkedState = this.checked;
+          console.log("Checkedstate " + checkedState);
           // To "select all", we do it with the current applied filter, to not interfere with the other user selections
           $(".btn-game").not(".d-none").each(function(){
             var game = $(this).data("game");
             var songIndices = database.filter((s) => s.game == game).map((s) => s.index);
+            // console.log("Indices for " + game + " | " + songIndices);
             if(checkedState) selections.push(...songIndices);
             else selections = selections.filter((s) => !songIndices.includes(s));
-            console.log("Selections done for " + game);
+            // console.log("Selections done for " + game);
           });
           console.log("Selections updated");
+          console.log(selections);
           updateSelections();
         });
 
@@ -1510,6 +1529,7 @@
     
     <div id="loadingOverlay" class="loading-overlay d-none">
       <i class="fa-solid fa-spinner fa-spin-pulse fa-3x"></i>
+      <div id="loadingText"></div>
     </div>
 
     <nav class="navbar navbar-expand-lg bg-body-tertiary" style="padding-left: 8px; height: 46.5px;">

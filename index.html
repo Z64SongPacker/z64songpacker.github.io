@@ -1249,7 +1249,11 @@
         var zip = new JSZip();
 
         if(includeSelectionsAndSettings){
-          // TODO: INCLUDE THE SELECTIONS AND SETTINGS!!!
+          var settings = getSettings();
+          var settingsBlob = new Blob([JSON.stringify(settings)], {
+              type: 'application/json'
+          });
+          zip.file(`Z64 Song Packer - Settings and selections - ${Date.now()}.z64packersettings`, settingsBlob);
         }
 
         // Load all binaries.zip to memory, so we can pick the songs later
@@ -1348,7 +1352,7 @@
           var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(`${gameName} - ${song.song}`);
 
           // For testing:
-          finalSongName = `${finalSongName.length}-${finalSongName}`
+          // finalSongName = `${finalSongName.length}-${finalSongName}`
 
           var fileName = `${finalSongName}.${extension}`;
           if(maintainFolderStructure) fileName = song.file; // <- If we want to maintain the folder structure, we just return the path as it is on github
@@ -1360,7 +1364,7 @@
             var file = internalFiles[i];
             
             // Change the internal name on ootrs files (not needed for mmrs)
-            if(gameNamesFormat != "full" && file.name.endsWith(".meta")){
+            if(file.name.endsWith(".meta")){
               var metaFile = await file.async("text");
               var lines = metaFile.split('\n');
               lines[0] = finalSongName; // The first line is the song name!
@@ -1368,7 +1372,7 @@
             }
 
             // Change the internal name on modern files (yaml metadata format)
-            if(gameNamesFormat != "full" && file.name.endsWith(".metadata")){
+            if(file.name.endsWith(".metadata")){
               // TODO: TODO: TODO <<<------------------------------------------------------------------------------------------------<
               var metadataYaml = YAML.parse(await file.async("text"));
               metadataYaml["metadata"]["display name"] = finalSongName;
@@ -1436,7 +1440,9 @@
             var songIndices = database.filter((s) => s.game == game).map((s) => s.index);
             if(checkedState) selections.push(...songIndices);
             else selections = selections.filter((s) => !songIndices.includes(s));
+            console.log("Selections done for " + game);
           });
+          console.log("Selections updated");
           updateSelections();
         });
 

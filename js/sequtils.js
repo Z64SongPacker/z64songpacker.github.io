@@ -1,12 +1,42 @@
 export class SeqUtils{
 
-    // Amplifies the volume byte of this by an specific amount (additive)
+    // Amplifies the volume byte of this by an specific amount (linear additive)
     static preAmplifyVolume(seq, volumePreAmplifying){
         var mainVolumeCommandIndex = seq.indexOf(0xDB);
         var mainVolume = seq[mainVolumeCommandIndex + 1];
         var finalVolume = Math.min(Math.max(mainVolume + volumePreAmplifying, 0x0), 0xFF); // <- Clamp to 8bits
         console.log("Main volume changed: " + mainVolume + " -> " + finalVolume);
         seq[mainVolumeCommandIndex + 1] = finalVolume;
+    }
+
+    static setLoudness(seq, originalLoudness, targetLoudness){
+        var mainVolumeCommandIndex = seq.indexOf(0xDB);
+        var mainVolume = seq[mainVolumeCommandIndex + 1];
+
+        // First, we need to convert our current volume to decibels
+        var currentDb = this.midiToDb(mainVolume);
+        //console.log("Current dB: " + currentDb);
+
+        // Now, calculate the target dB using the loudness LUFS
+        var targetDb = currentDb + (+targetLoudness - +originalLoudness);
+        //console.log("Target dB: " + targetDb);
+
+        // Finally, convert back to midi and clamp
+        var finalMidiVolume = this.dbToMidi(targetDb);
+        //console.log("Final MIDI volume: " + finalMidiVolume);
+
+        var finalVolume = Math.min(Math.max(finalMidiVolume, 0x0), 0xFF); // <- Clamp to 8bits
+
+        console.log(`Volume balanced: ${originalLoudness} LUFS -> ${targetLoudness} LUFS  | ${mainVolume} -> ${finalVolume}`);
+        seq[mainVolumeCommandIndex + 1] = finalVolume;
+    }
+
+    static midiToDb(midiVolume){
+        return 40 * Math.log10(midiVolume / 127);
+    }
+
+    static dbToMidi(decibels){
+        return Math.round(127 * Math.pow(10, (decibels / 40)));
     }
 
     static replaceFilenameWithSafeAlternatives(filename){

@@ -68,6 +68,7 @@
         maintainFolderStructure: false,
         useShortGameNames: false,
         volumePreAmplifying: 0,
+        volumeBalancing: "none",
 
         // Available repos
         // These repos CANNOT be deleted by the user, they will always be available, ya like it or not!
@@ -193,6 +194,7 @@
         settings.excludeUnsafeTracks = $("#cbxExcludeUnsafeTracks").is(":checked");
         settings.gameNamesFormat = $("#ddlGameNamesFormat").val();
         settings.volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
+        settings.volumeBalancing = $("#ddlVolumeBalancing").val();
 
         // Selections now are universal, since we are using uuids
         settings.selections = [...new Set([...settings.selections, ...selections.map(i => database[i].uuid)])];
@@ -431,8 +433,9 @@
           $("#cbxMaintainFolderStructure").prop('checked', settings.maintainFolderStructure);
           $("#cbxIncludeSelectionsAndSettings").prop('checked', settings.includeSelectionsAndSettings);
           $("#cbxExcludeUnsafeTracks").prop('checked', settings.excludeUnsafeTracks);
-          $("#ddlGameNamesFormat").val(settings.gameNamesFormat || "dynamic");
+          $("#ddlGameNamesFormat").val(settings.gameNamesFormat || "dynamic").trigger("change");
           $("#rgVolumePreAmplifying").val(settings.volumePreAmplifying).trigger("input");
+          $("#ddlVolumeBalancing").val(settings.volumeBalancing).trigger("change");
 
           // Now load their selections
           // Settings by default add the default repos together with the user-defined ones
@@ -959,7 +962,8 @@
           // Get the values from the song
           var isOOTRS = s.file.toLowerCase().endsWith(".ootrs");
           var isFanfare = s.type.toLowerCase() == "fanfare";
-          var categories = toArray(s.categories).map((c) => 
+          var categoriesArray = toArray(s.categories);
+          var categories = categoriesArray.map((c) => 
             `<span class="badge rounded-pill border">${isOOTRS ? c : MMCategories.toString(c)}</span>`
           );
           var isSelected = selections.includes(s.index);
@@ -984,12 +988,15 @@
           // LIST VIEW
           var isListView = $("#ddlLayout").val() == "list";
           if(isListView){
+            console.log(MMCategories.getIdealLufs(categoriesArray));
             $(isFanfare ? "#panelFanfares" : "#panelSongs").append(
               `<div class="col-12">
                 <div class="card btn-song ${isSelected ? "active" : ""}" id="btnSong${i}" data-song="${s.uuid}">
                   <div class="row align-items-center g-2">
                     <i id="btnPreview${i}" class="col-auto fa-solid fa-play ${hasPreview ? "" : "opacity-25"}" title="Preview"></i>
-                    <b class="col">${s.song}${badgeAppend}</b>
+                    <b class="col">
+                      ${s.song}${badgeAppend}
+                    </b>
                     <div class="metadata col">
                       <div class="row">
                         <div class="composers w-100"><i class="fa-solid fa-music fa-fw"></i> ${toArray(s.composers).join(", ") || "<span class='opacity-50'>Unknown</span>"}</div>
@@ -1244,6 +1251,7 @@
         var gameNamesFormat = $("#ddlGameNamesFormat").val();
         //var useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
         var volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
+        var volumeBalancing = $("#ddlVolumeBalancing").val();
 
         // Create the main archive to download
         var zip = new JSZip();
@@ -1382,11 +1390,42 @@
               z64File.file(file.name, YAML.stringify(metadataYaml));
             }
 
-            // Modify the volume inside the seq file
-            if(volumePreAmplifying != 0 && (file.name.endsWith(".seq") || file.name.endsWith(".zseq"))){
-              // I think this requires compatibility from the browser... check if it works in others than chrome
+            // Changes to the seq files
+            if(file.name.endsWith(".seq") || file.name.endsWith(".zseq")){
+              // Pretty sure using uint8array requires compatibility from the browser...
+              // TODO: Check if it works in other browsers than chrome
               var seq = await file.async("uint8array");
-              SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
+
+              // Balance the volume of the files
+              // We can only do it if we know their loudness
+              if(song.lufs){
+                if(volumeBalancing == "flat"){
+                  // TODO: Make the flat loudness user input
+                  // TODO: Make the flat loudness different for fanfares
+                  SeqUtils.setLoudness(seq, song.lufs, -19);
+                  
+                } else if(volumeBalancing.startsWith("ideal-")){
+                  // TODO: Implement ideal lufs for OOTRS
+                  var idealLufs = (extension == "mmrs" ? MMCategories.getIdealLufs(song.categories) : []).map(Number);
+                  if(idealLufs.length > 0){
+                    if(volumeBalancing.endsWith("-average")){
+                      var average = idealLufs.reduce((sum, num) => sum + num, 0) / idealLufs.length;
+                      SeqUtils.setLoudness(seq, song.lufs, average);
+
+                    } else if(volumeBalancing.endsWith("-quiet")){
+                      var quietest = Math.min(...idealLufs);
+                      SeqUtils.setLoudness(seq, song.lufs, quietest);
+                    }
+                  }
+                }
+              }
+              
+              // Apply the volume pre amplifying
+              // TODO: CONVERT THIS INTO DECIBELS!!!
+              if(volumePreAmplifying != 0){
+                SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
+              }
+
               z64File.file(file.name, seq);
             }
           }
@@ -1520,6 +1559,19 @@
           loadSongsList(currentSongList);
           saveSettings();
         });
+
+        // ----- EXPORT OPTIONS -----
+        $("#ddlGameNamesFormat").on("change", function(){
+          $(".hint.game-name-format").addClass("d-none");
+          $(".hint.game-name-format." + $(this).val()).removeClass("d-none");
+        }).trigger("change");
+
+        $("#ddlVolumeBalancing").on("change", function(){
+          $(".hint.volume-balancing").addClass("d-none");
+          $(".hint.volume-balancing." + $(this).val()).removeClass("d-none");
+        }).trigger("change");
+
+        
       });
     </script>
 
@@ -1613,12 +1665,31 @@
             <hr class="my-2">
             <li><h6 class="dropdown-header">Game names format:</h6></li>
             <li class="px-3">
-              <select class="form-control mb-3" id="ddlGameNamesFormat">
+              <select class="form-control mb-1" id="ddlGameNamesFormat">
                 <option value="dynamic">Dynamic length</option>
                 <option value="full">Full names</option>
                 <option value="short">Short names</option>
                 <option value="abbreviated">Abbreviated names</option>
               </select>
+              <p class="hint game-name-format dynamic">Adapts the game name length dynamically to maintain a maximum of 48 characters to fit on N64 randos.</p>
+              <p class="hint game-name-format full">Uses the full name of each game. E.g: <i>The Legend of Zelda: Majora's Mask</i></p>
+              <p class="hint game-name-format short">Uses a short name, if available. E.g: <i>Zelda: Majora's Mask</i></p>
+              <p class="hint game-name-format abbreviated">Uses an abbreviation of the game name. E.g: <i>TLoZMM</i></p>
+            </li>
+            <hr class="my-2">
+            <li><h6 class="dropdown-header">Volume balancing (experimental):</h6></li>
+            <li class="px-3">
+              <select class="form-control mb-1" id="ddlVolumeBalancing">
+                <option value="none">None</option>
+                <option value="flat">Flat volume</option>
+                <option value="ideal-average">Ideal averaged</option>
+                <option value="ideal-quiet">Ideal prefer quiet</option>
+                <!-- custom ideal lufs...? -->
+              </select>
+              <p class="hint volume-balancing none">Volume is set as their creator made. Songs can vary wildly in volume.</p>
+              <p class="hint volume-balancing flat">Volume is forced to a set loudness (-19 LUFS). Songs will not have dynamism, like a Spotify playlist.</p>
+              <p class="hint volume-balancing ideal-average">Volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, their loudness are averaged.</p>
+              <p class="hint volume-balancing ideal-quiet">Volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, the most quiet loudness is used.</p>
             </li>
             <hr class="my-2">
             <li><h6 class="dropdown-header">Volume pre-amplifying:</h6></li>

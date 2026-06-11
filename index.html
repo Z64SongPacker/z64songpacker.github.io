@@ -197,7 +197,11 @@
         settings.volumeBalancing = $("#ddlVolumeBalancing").val();
 
         // Selections now are universal, since we are using uuids
-        settings.selections = [...new Set([...settings.selections, ...selections.map(i => database[i].uuid)])];
+        // Remove all the uuids of this current database and re-add the user selections
+        var currentDatabase = database.map(s => s.uuid);
+        var currentSelections = selections.map(i => database[i].uuid);
+        var filteredSelections = settings.selections.filter(s => !currentDatabase.includes(s));
+        settings.selections = [...new Set([...filteredSelections, ...currentSelections])];
 
         // Then, save selected repo
         settings.selectedReposIndices = selectedReposIndices;

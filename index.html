@@ -192,6 +192,7 @@
         settings.maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
         settings.includeSelectionsAndSettings = $("#cbxIncludeSelectionsAndSettings").is(":checked");
         settings.excludeUnsafeTracks = $("#cbxExcludeUnsafeTracks").is(":checked");
+        settings.excludeDuplicates = $("#cbxExcludeDuplicates").is(":checked");
         settings.gameNamesFormat = $("#ddlGameNamesFormat").val();
         settings.volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
         settings.volumeBalancing = $("#ddlVolumeBalancing").val();
@@ -437,9 +438,10 @@
           $("#cbxMaintainFolderStructure").prop('checked', settings.maintainFolderStructure);
           $("#cbxIncludeSelectionsAndSettings").prop('checked', settings.includeSelectionsAndSettings);
           $("#cbxExcludeUnsafeTracks").prop('checked', settings.excludeUnsafeTracks);
+          $("#cbxExcludeDuplicates").prop("checked", settings.excludeDuplicates)
           $("#ddlGameNamesFormat").val(settings.gameNamesFormat || "dynamic").trigger("change");
           $("#rgVolumePreAmplifying").val(settings.volumePreAmplifying).trigger("input");
-          $("#ddlVolumeBalancing").val(settings.volumeBalancing).trigger("change");
+          $("#ddlVolumeBalancing").val(settings.volumeBalancing || "none").trigger("change");
 
           // Now load their selections
           // Settings by default add the default repos together with the user-defined ones
@@ -1252,6 +1254,8 @@
         var maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
         var includeSelectionsAndSettings = $("#cbxIncludeSelectionsAndSettings").is(":checked");
         var excludeUnsafeTracks = $("#cbxExcludeUnsafeTracks").is(":checked");
+        var excludeDuplicates = $("#cbxExcludeDuplicates").is(":checked");
+        var selectionsHashMap = []; // <- For dupe detection
         var gameNamesFormat = $("#ddlGameNamesFormat").val();
         //var useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
         var volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
@@ -1290,8 +1294,7 @@
 
         // Loop every selection
         var songCount = 0;
-        for(var songIndex of selections){
-          songCount++;
+        selectionsLoop: for(var songIndex of selections){
           var song = database[songIndex];
           var repoIndex = song.repoIndex;
 
@@ -1308,10 +1311,9 @@
             continue;
           }
           
-          // TODO: IMPLEMENT METHODS... TAKE INTO CONSIDERATION MAX LENGTH    
           var gameName = song.game;
           if(gameNamesFormat != "full"){
-            var maxLength = 48; // Maybe allow user input for this one
+            var maxLength = 48; // TODO: Maybe allow user input for this one
             var game = gamesDb.find(g => g.game == song.game);
             
             // Get the short name
@@ -1399,6 +1401,18 @@
               // Pretty sure using uint8array requires compatibility from the browser...
               // TODO: Check if it works in other browsers than chrome
               var seq = await file.async("uint8array");
+              
+              // Check if it's not duplicated... skip if it is
+              // TODO: Maybe allow the user to select which one to use...?
+              if(excludeDuplicates){
+                var hash = md5(SeqUtils.preAmplifyVolume(new Uint8Array(seq), -256)); // Set volume to zero; remember we are using dynamic loudness
+                if(selectionsHashMap.includes(hash)) {
+                  console.log(fileName + " DUPE FOUND - Skipping...");
+                  continue selectionsLoop; // ew, goto, but well, this is it's real use case!
+                }
+                else selectionsHashMap.push(hash);
+              }
+              
 
               // Balance the volume of the files
               // We can only do it if we know their loudness
@@ -1435,22 +1449,10 @@
           }
           
           // Add the file
-          //zip.file(fileName, await songFile.async("blob"));
+          songCount++;
           console.log(`Zipping: ${fileName}`);
           setLoadingOverlayText(`Zipping... ${songCount} files`);
           zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
-
-          // Download the song from the github repository (OLD fetch version | changed because slow)
-          /*var fileLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.binaries}/${song.file}`;
-          var fileResponse = await fetch(fileLink, { cache: "no-store" });
-          console.log(fileLink);
-
-          if(fileResponse.ok){
-            // Add the thing to the archive
-            var extension = song.file.split('.').pop();
-            var fileName = `${song.game} - ${song.song}.${extension}`;
-            zip.file(fileName, await fileResponse.blob());
-          }*/
         }
         
         // We finally, download the generated zip
@@ -1657,13 +1659,19 @@
             <li>
               <div class="form-check form-check-inline ms-3">
                 <input class="form-check-input" type="checkbox" id="cbxIncludeSelectionsAndSettings">
-                <label class="form-check-label" for="cbxIncludeSelectionsAndSettings">Include selections and settings</label>
+                <label class="form-check-label" for="cbxIncludeSelectionsAndSettings">Include selections</label>
               </div>
             </li>
             <li>
               <div class="form-check form-check-inline ms-3">
                 <input class="form-check-input" type="checkbox" id="cbxExcludeUnsafeTracks">
                 <label class="form-check-label" for="cbxExcludeUnsafeTracks">Exclude unsafe tracks</label>
+              </div>
+            </li>
+            <li>
+              <div class="form-check form-check-inline ms-3">
+                <input class="form-check-input" type="checkbox" id="cbxExcludeDuplicates">
+                <label class="form-check-label" for="cbxExcludeDuplicates">Exclude duplicates</label>
               </div>
             </li>
             <hr class="my-2">

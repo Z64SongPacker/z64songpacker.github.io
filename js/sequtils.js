@@ -7,6 +7,7 @@ export class SeqUtils{
         var finalVolume = Math.min(Math.max(mainVolume + volumePreAmplifying, 0x0), 0xFF); // <- Clamp to 8bits
         console.log("Main volume changed: " + mainVolume + " -> " + finalVolume);
         seq[mainVolumeCommandIndex + 1] = finalVolume;
+        return seq;
     }
 
     static setLoudness(seq, originalLoudness, targetLoudness){
@@ -29,6 +30,7 @@ export class SeqUtils{
 
         console.log(`Volume balanced: ${originalLoudness} LUFS -> ${targetLoudness} LUFS  | ${mainVolume} -> ${finalVolume}`);
         seq[mainVolumeCommandIndex + 1] = finalVolume;
+        return seq;
     }
 
     static midiToDb(midiVolume){

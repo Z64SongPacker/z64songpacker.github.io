@@ -196,6 +196,7 @@
         settings.gameNamesFormat = $("#ddlGameNamesFormat").val();
         settings.volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
         settings.volumeBalancing = $("#ddlVolumeBalancing").val();
+        settings.includeOnlyVolumeBalancedTracks = $("#cbxIncludeOnlyVolumeBalancedTracks").is(":checked");
 
         // Selections now are universal, since we are using uuids
         // Remove all the uuids of this current database and re-add the user selections
@@ -442,6 +443,7 @@
           $("#ddlGameNamesFormat").val(settings.gameNamesFormat || "dynamic").trigger("change");
           $("#rgVolumePreAmplifying").val(settings.volumePreAmplifying).trigger("input");
           $("#ddlVolumeBalancing").val(settings.volumeBalancing || "none").trigger("change");
+          $("#cbxIncludeOnlyVolumeBalancedTracks").prop("checked", settings.includeOnlyVolumeBalancedTracks);
 
           // Now load their selections
           // Settings by default add the default repos together with the user-defined ones
@@ -1260,6 +1262,7 @@
         //var useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
         var volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
         var volumeBalancing = $("#ddlVolumeBalancing").val();
+        var includeOnlyVolumeBalancedTracks = $("#cbxIncludeOnlyVolumeBalancedTracks").is(":checked");
 
         // Create the main archive to download
         var zip = new JSZip();
@@ -1300,6 +1303,9 @@
 
           // Exclude the unsafe tracks if the user wants it for this specific download
           if(excludeUnsafeTracks && repoIndex >= defaultSettings.userRepos.length) continue;
+
+          // Skip songs that are not volume balanced if the user wants it
+          if(includeOnlyVolumeBalancedTracks && volumeBalancing != "none" && !song.lufs) continue;
 
           // Grab the song from our binaries file
           var songPath = `${repos[repoIndex].binaries}/${song.file}`.replace("//", "/");
@@ -1575,6 +1581,7 @@
         $("#ddlVolumeBalancing").on("change", function(){
           $(".hint.volume-balancing").addClass("d-none");
           $(".hint.volume-balancing." + $(this).val()).removeClass("d-none");
+          $("#fgIncludeOnlyVolumeBalancedTracks").toggleClass("d-none", $(this).val() == "none");
         }).trigger("change");
 
         
@@ -1702,6 +1709,11 @@
               <p class="hint volume-balancing flat">Volume is forced to a set loudness (-19 LUFS). Songs will not have dynamism, like a Spotify playlist.</p>
               <p class="hint volume-balancing ideal-average">Volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, their loudness are averaged.</p>
               <p class="hint volume-balancing ideal-quiet">Volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, the most quiet loudness is used.</p>
+              
+              <div class="form-check form-check-inline mx-0" id="fgIncludeOnlyVolumeBalancedTracks">
+                <input class="form-check-input" type="checkbox" id="cbxIncludeOnlyVolumeBalancedTracks">
+                <label class="form-check-label" for="cbxIncludeOnlyVolumeBalancedTracks">Include only volume balanced tracks</label>
+              </div>
             </li>
             <hr class="my-2">
             <li><h6 class="dropdown-header">Volume pre-amplifying:</h6></li>

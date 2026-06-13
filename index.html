@@ -47,6 +47,7 @@
     <script type="module">
       import * as bootstrap from "bootstrap";
       import { MMCategories } from "./js/mmcategories.js";
+      import { OoTCategories } from "./js/ootcategories.js";
       import { SeqUtils } from "./js/sequtils.js";
       import YAML from 'yaml';
 
@@ -996,7 +997,7 @@
           // LIST VIEW
           var isListView = $("#ddlLayout").val() == "list";
           if(isListView){
-            console.log(MMCategories.getIdealLufs(categoriesArray));
+            //console.log(MMCategories.getIdealLufs(categoriesArray));
             $(isFanfare ? "#panelFanfares" : "#panelSongs").append(
               `<div class="col-12">
                 <div class="card btn-song ${isSelected ? "active" : ""}" id="btnSong${i}" data-song="${s.uuid}">
@@ -1430,7 +1431,7 @@
                   
                 } else if(volumeBalancing.startsWith("ideal-")){
                   // TODO: Implement ideal lufs for OOTRS
-                  var idealLufs = (extension == "mmrs" ? MMCategories.getIdealLufs(song.categories) : []).map(Number);
+                  var idealLufs = (extension == "mmrs" ? MMCategories.getIdealLufs(song.categories) : OoTCategories.getIdealLufs(song.categories)).map(Number);
                   if(idealLufs.length > 0){
                     if(volumeBalancing.endsWith("-average")){
                       var average = idealLufs.reduce((sum, num) => sum + num, 0) / idealLufs.length;

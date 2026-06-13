@@ -2,7 +2,7 @@
 // For simplicity sake, we will only map the exact specifity groups to mm categories
 // That way we can use a single LUFS table (for the time beign)
 
-import { MMCategories } from "./mmcategories";
+import { MMCategories } from "./mmcategories.js";
 
 export class OoTCategories{
 
@@ -140,10 +140,6 @@ export class OoTCategories{
     "DoorOfTime",
 
     // MM doesn't have these available, so I'll stuff them here, since they are pretty long for normal fanfares
-    ...this.ocarinaSongs
-  ]
-
-  static ocarinaSongs = [
     "PreludeOfLight",
     "BoleroOfFire",
     "MinuetOfForest",
@@ -157,4 +153,19 @@ export class OoTCategories{
     "SongOfTime",
     "SongOfStorms"
   ]
+
+  /*static ocarinaSongs = [
+    "PreludeOfLight",
+    "BoleroOfFire",
+    "MinuetOfForest",
+    "SerenadeOfWater",
+    "RequiemOfSpirit",
+    "NocturneOfShadow",
+    "SariasSong",
+    "EponasSong",
+    "ZeldasLullaby",
+    "SunsSong",
+    "SongOfTime",
+    "SongOfStorms"
+  ]*/
 }

@@ -49,6 +49,7 @@
       import { MMCategories } from "./js/mmcategories.js";
       import { OoTCategories } from "./js/ootcategories.js";
       import { SeqUtils } from "./js/sequtils.js";
+      import { packOtr } from '../otrwebtools/js/otrPacker.js';
       import YAML from 'yaml';
 
       // TODO: ADD SUPPORT FOR MULTIPLE PREVIEW FILES!!!
@@ -70,6 +71,8 @@
         useShortGameNames: false,
         volumePreAmplifying: 0,
         volumeBalancing: "none",
+        includeOnlyVolumeBalancedTracks: false,
+        packFormat: "zip",
 
         // Available repos
         // These repos CANNOT be deleted by the user, they will always be available, ya like it or not!
@@ -199,6 +202,7 @@
         settings.volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
         settings.volumeBalancing = $("#ddlVolumeBalancing").val();
         settings.includeOnlyVolumeBalancedTracks = $("#cbxIncludeOnlyVolumeBalancedTracks").is(":checked");
+        settings.packFormat = $("#ddlPackFormat").val();
 
         // Selections now are universal, since we are using uuids
         // Remove all the uuids of this current database and re-add the user selections
@@ -446,6 +450,7 @@
           $("#rgVolumePreAmplifying").val(settings.volumePreAmplifying).trigger("input");
           $("#ddlVolumeBalancing").val(settings.volumeBalancing || "none").trigger("change");
           $("#cbxIncludeOnlyVolumeBalancedTracks").prop("checked", settings.includeOnlyVolumeBalancedTracks);
+          $("#ddlPackFormat").val(settings.packFormat || "zip");
 
           // Now load their selections
           // Settings by default add the default repos together with the user-defined ones
@@ -1261,13 +1266,14 @@
         var excludeDuplicates = $("#cbxExcludeDuplicates").is(":checked");
         var selectionsHashMap = []; // <- For dupe detection
         var gameNamesFormat = $("#ddlGameNamesFormat").val();
-        //var useShortGameNames = $("#cbxUseShortGameNames").is(":checked");
         var volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
         var volumeBalancing = $("#ddlVolumeBalancing").val();
         var includeOnlyVolumeBalancedTracks = $("#cbxIncludeOnlyVolumeBalancedTracks").is(":checked");
+        var packFormat = $("#ddlPackFormat").val();
 
         // Create the main archive to download
         var zip = new JSZip();
+        var otr = [];
 
         if(includeSelectionsAndSettings){
           var settings = getSettings();
@@ -1302,6 +1308,7 @@
         selectionsLoop: for(var songIndex of selections){
           var song = database[songIndex];
           var repoIndex = song.repoIndex;
+          var otrSequence = {}; // <- Format: name, seqData, metaData
 
           // Exclude the unsafe tracks if the user wants it for this specific download
           if(excludeUnsafeTracks && repoIndex >= defaultSettings.userRepos.length) continue;
@@ -1375,6 +1382,11 @@
           // Get the final name for the song using the options selected
           var extension = song.file.split('.').pop();
           var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(`${gameName} - ${song.song}`);
+          otrSequence.name = finalSongName;
+
+          // TODO: CONVERT TO OTR ANY TRACK WITH COMPATIBLE BANKS
+          // If using OTR, skip any mmrs or custom bank or samples
+          if(packFormat == "otr" && (extension == "mmrs" || song.usesCustomBank || song.usesCustomSamples)) continue;
 
           // For testing:
           // finalSongName = `${finalSongName.length}-${finalSongName}`
@@ -1393,19 +1405,21 @@
               var metaFile = await file.async("text");
               var lines = metaFile.split('\n');
               lines[0] = finalSongName; // The first line is the song name!
+              
               z64File.file(file.name, lines.join('\n'));
+              otrSequence.metaData = lines.join('\n');
             }
 
             // Change the internal name on modern files (yaml metadata format)
             if(file.name.endsWith(".metadata")){
-              // TODO: TODO: TODO <<<------------------------------------------------------------------------------------------------<
+              // TODO: Seems that Crin won't be pursuing this anymore, but I'll still keep this here
               var metadataYaml = YAML.parse(await file.async("text"));
               metadataYaml["metadata"]["display name"] = finalSongName;
               z64File.file(file.name, YAML.stringify(metadataYaml));
             }
 
             // Changes to the seq files
-            if(file.name.endsWith(".seq") || file.name.endsWith(".zseq")){
+            if(file.name.endsWith(".seq") || file.name.endsWith(".zseq") || file.name.endsWith(".aseq")){
               // Pretty sure using uint8array requires compatibility from the browser...
               // TODO: Check if it works in other browsers than chrome
               var seq = await file.async("uint8array");
@@ -1453,20 +1467,32 @@
               }
 
               z64File.file(file.name, seq);
+              otrSequence.seqData = seq;
             }
           }
           
           // Add the file
           songCount++;
-          console.log(`Zipping: ${fileName}`);
-          setLoadingOverlayText(`Zipping... ${songCount} files`);
-          zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
+          console.log(`Packing: ${fileName}`);
+          setLoadingOverlayText(`Packing... ${songCount} files`);
+
+          // For ZIP, add it to the archive
+          // For OTR, push it to the list for packing later
+          if(packFormat == "zip") zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
+          else if(packFormat == "otr") otr.push(otrSequence);
         }
         
-        // We finally, download the generated zip
+        // Finally, download the generated pack
         setLoadingOverlayText(`Done!`);
-        var blob = await zip.generateAsync({ type: "blob" });
-        saveAs(blob, `${selectedRepo.name} - Song Pack - ${Date.now()}.zip`);
+
+        if(packFormat == "zip"){
+          var blob = await zip.generateAsync({ type: "blob" });
+          saveAs(blob, `${selectedRepo.name} - Song Pack - ${Date.now()}.zip`);
+
+        } else if(packFormat == "otr"){
+          var otrBytes = await packOtr(otr, { verify: true });
+          saveAs(new Blob([otrBytes], { type: 'application/octet-stream' }), `z64-song-pack.otr`);
+        }
 
         // Also save our settings and selections and finish
         saveSettingsToStorage();
@@ -1656,8 +1682,8 @@
             <i class="fa-solid fa-download me-1"></i>
             <span class="me-1">Download song pack</span>
           </button>
-          <ul class="dropdown-menu pb-0">
-
+          
+          <ul class="dropdown-menu pb-0" style="min-width: 315px">
             <li><h6 class="dropdown-header">Export options:</h6></li>
             <li>
               <div class="form-check form-check-inline ms-3">
@@ -1668,7 +1694,7 @@
             <li>
               <div class="form-check form-check-inline ms-3">
                 <input class="form-check-input" type="checkbox" id="cbxIncludeSelectionsAndSettings">
-                <label class="form-check-label" for="cbxIncludeSelectionsAndSettings">Include selections</label>
+                <label class="form-check-label" for="cbxIncludeSelectionsAndSettings">Include selections and settings</label>
               </div>
             </li>
             <li>
@@ -1736,9 +1762,16 @@
 
             <hr class="mt-2 mb-0">
             <li>
-              <a class="dropdown-item active rounded-bottom py-2" href="#" id="btnDownloadSongPack">
-                <i class="fa-solid fa-download"></i> Download song pack <span class="opacity-50">| ZIP</span>
-              </a>
+              <div class="btn-group w-100">
+                <a class="btn btn-primary py-2" style="border-top-left-radius: 0" href="#" id="btnDownloadSongPack">
+                  <i class="fa-solid fa-download"></i> Download song pack
+                </a>
+                <span style="width: 2px; background-color: var(--bs-primary-text-emphasis) !important"></span>
+                <select class="btn btn-primary ps-1" style="max-width: 102px !important; border-top-right-radius: 0" id="ddlPackFormat">
+                  <option value="zip">ZIP</option>
+                  <option value="otr">OTR</option>
+                </select>
+              </div>
             </li>
           </ul>
         </div>

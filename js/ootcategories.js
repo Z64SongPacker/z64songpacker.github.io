@@ -23,7 +23,7 @@ export class OoTCategories{
       else if(this.itemGet[id]) lufs.push(MMCategories.idealLufs["Item get"]);
       else if(this.gameOver[id]) lufs.push(MMCategories.idealLufs["Game over"]);
       else if(this.areaClear[id]) lufs.push(MMCategories.idealLufs["Area clear"]);
-      else console.log("NOT FOUND " + id); // TODO: HAVE A FAILSAFE LUFS
+      //else console.log("NOT FOUND " + id); // TODO: HAVE A FAILSAFE LUFS
     }
     return lufs;
   }

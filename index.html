@@ -1307,208 +1307,234 @@
         // Loop every selection
         var songCount = 0;
         selectionsLoop: for(var songIndex of selections){
-          var song = database[songIndex];
-          var repoIndex = song.repoIndex;
-          var otrSequence = {}; // <- Format: name, seqData, metaData
+          try{
+            var song = database[songIndex];
+            var repoIndex = song.repoIndex;
+            var otrSequence = {}; // <- Format: name, seqData, metaData
 
-          // Exclude the unsafe tracks if the user wants it for this specific download
-          if(excludeUnsafeTracks && repoIndex >= defaultSettings.userRepos.length) continue;
+            // Exclude the unsafe tracks if the user wants it for this specific download
+            if(excludeUnsafeTracks && repoIndex >= defaultSettings.userRepos.length) continue;
 
-          // Skip songs that are not volume balanced if the user wants it
-          if(includeOnlyVolumeBalancedTracks && volumeBalancing != "none" && !song.lufs) continue;
+            // Skip songs that are not volume balanced if the user wants it
+            if(includeOnlyVolumeBalancedTracks && volumeBalancing != "none" && !song.lufs) continue;
 
-          // Grab the song from our binaries file
-          var songPath = `${repos[repoIndex].binaries}/${song.file}`.replace("//", "/");
-          var songFile = binaries[repoIndex].file(songPath);
+            // Grab the song from our binaries file
+            var songPath = `${repos[repoIndex].binaries}/${song.file}`.replace("//", "/");
+            var songFile = binaries[repoIndex].file(songPath);
 
-          // If we can't find the file on the binaries, we skip it, but we throw an error!
-          if(!songFile){
-            errorToast(`Couldn't get file from binaries: ${songPath}`);
-            continue;
-          }
-          
-          var gameName = song.game;
-          if(gameNamesFormat != "full"){
-            var maxLength = 48; // TODO: Maybe allow user input for this one
-            var game = gamesDb.find(g => g.game == song.game);
-            
-            // Get the short name
-            // If not available, use the full name... we don't know exactly how to shorten it
-            var shortName = game.short_name || game.game;
-
-            // Get the abbreviated name
-            // If not available, generate it ourselves
-            var abbreviatedName = game.abbreviated_name;
-            if(!abbreviatedName){
-              // Use the short name if available to create the abbreviation
-              // TODO: Consult if this is good or not...
-              var splittedGameName = song.game.replace(/[:\(\)]/g, "").split(/\-| /);
-              var splittedShortName = shortName.split(/\-| /); // No need to trim for short name check
-
-              // If only one word, use that one fully
-              if(splittedGameName.length == 1){
-                abbreviatedName = song.game;
-
-              } else if(splittedShortName.length == 1){
-                abbreviatedName = shortName;
-
-              // If not, create our own abbreviated name!
-              // - First letter of each word (respect case)
-              // - Leave numbers fully
-              // - Convert roman numerals to numbers
-              } else{
-                abbreviatedName = splittedGameName.map(x => {
-                  x = SeqUtils.convertIfRomanNumeral(x);
-                  return /^\d+$/.test(x) ? x : x.slice(0, 1);
-                }).join("");
-              }
+            // If we can't find the file on the binaries, we skip it, but we throw an error!
+            if(!songFile){
+              errorToast(`Couldn't get file from binaries: ${songPath}`);
+              continue;
             }
             
-            if(gameNamesFormat == "short"){
-              gameName = shortName;
-
-            } else if(gameNamesFormat == "abbreviated"){
-              gameName = abbreviatedName;
-
-            } else if(gameNamesFormat == "dynamic"){
-              // Try our best to be under the max length (48 for most console randos)
-              // Prioritize using the longer names
-              // If too long use their shorter variants
-              if(`${song.game} - ${song.song}`.length <= maxLength) gameName = song.game;
-              else if(`${shortName} - ${song.song}`.length <= maxLength) gameName = shortName;
-              else gameName = abbreviatedName;
-            }
-          }
-          
-          // Get the final name for the song using the options selected
-          var extension = song.file.split('.').pop();
-          var finalSongNameUnsafe = `${gameName} - ${song.song}`;
-          var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(finalSongNameUnsafe);
-          otrSequence.name = finalSongNameUnsafe;
-
-          // If using OTR, skip any song with custom bank or samples (sadly...)
-          if(packFormat.startsWith("otr-") && (song.usesCustomBank || song.usesCustomSamples)) continue;
-
-          // For testing:
-          // finalSongName = `${finalSongName.length}-${finalSongName}`
-
-          var fileName = `${finalSongName}.${extension}`;
-          if(maintainFolderStructure) fileName = song.file; // <- If we want to maintain the folder structure, we just return the path as it is on github
-          
-          // Iterate over every internal file...
-          var z64File = await new JSZip().loadAsync(songFile.async("blob"));
-          var internalFiles = z64File.file(/(.*?)/);
-          for(var i=0; i<internalFiles.length; i++){
-            var file = internalFiles[i];
-            
-            // Change the internal name on ootrs files (not needed for mmrs)
-            if(file.name.endsWith(".meta")){
-              var metaFile = await file.async("text");
-              var lines = metaFile.split('\n');
-              lines[0] = finalSongNameUnsafe; // The first line is the song name!
-              if(packFormat == "otr-2s2h") {
-                var bank = SeqUtils.ootToMMBank(lines[1]);
-                if(bank == -1) {
-                  console.log(fileName + " UNCOMPATIBLE BANK - Skipping...");
-                  continue selectionsLoop;
-                } 
-                lines[1] = bank.toString(16);
-              }
+            var gameName = song.game;
+            if(gameNamesFormat != "full"){
+              var maxLength = 48; // TODO: Maybe allow user input for this one
+              var game = gamesDb.find(g => g.game == song.game);
               
-              z64File.file(file.name, lines.join('\n'));
-              otrSequence.metaData = lines.join('\n');
-            }
+              // Get the short name
+              // If not available, use the full name... we don't know exactly how to shorten it
+              var shortName = game.short_name || game.game;
 
-            // Change the internal name on modern files (yaml metadata format)
-            if(file.name.endsWith(".metadata")){
-              // TODO: Seems that Crin won't be pursuing this anymore, but I'll still keep this here
-              var metadataYaml = YAML.parse(await file.async("text"));
-              metadataYaml["metadata"]["display name"] = finalSongName;
-              z64File.file(file.name, YAML.stringify(metadataYaml));
-            }
+              // Get the abbreviated name
+              // If not available, generate it ourselves
+              var abbreviatedName = game.abbreviated_name;
+              if(!abbreviatedName){
+                // Use the short name if available to create the abbreviation
+                // TODO: Consult if this is good or not...
+                var splittedGameName = song.game.replace(/[:\(\)]/g, "").split(/\-| /);
+                var splittedShortName = shortName.split(/\-| /); // No need to trim for short name check
 
-            // Changes to the seq files
-            if(file.name.endsWith(".seq") || file.name.endsWith(".zseq") || file.name.endsWith(".aseq")){
-              // Pretty sure using uint8array requires compatibility from the browser...
-              // TODO: Check if it works in other browsers than chrome
-              var seq = await file.async("uint8array");
-              
-              // Check if it's not duplicated... skip if it is
-              // TODO: Maybe allow the user to select which one to use...?
-              if(excludeDuplicates){
-                var hash = md5(SeqUtils.preAmplifyVolume(new Uint8Array(seq), -256)); // Set volume to zero; remember we are using dynamic loudness
-                if(selectionsHashMap.includes(hash)) {
-                  console.log(fileName + " DUPE FOUND - Skipping...");
-                  continue selectionsLoop; // ew, goto, but well, this is it's real use case!
+                // If only one word, use that one fully
+                if(splittedGameName.length == 1){
+                  abbreviatedName = song.game;
+
+                } else if(splittedShortName.length == 1){
+                  abbreviatedName = shortName;
+
+                // If not, create our own abbreviated name!
+                // - First letter of each word (respect case)
+                // - Leave numbers fully
+                // - Convert roman numerals to numbers
+                } else{
+                  abbreviatedName = splittedGameName.map(x => {
+                    x = SeqUtils.convertIfRomanNumeral(x);
+                    return /^\d+$/.test(x) ? x : x.slice(0, 1);
+                  }).join("");
                 }
-                else selectionsHashMap.push(hash);
               }
               
+              if(gameNamesFormat == "short"){
+                gameName = shortName;
 
-              // Balance the volume of the files
-              // We can only do it if we know their loudness
-              if(song.lufs){
-                if(volumeBalancing == "flat"){
-                  // TODO: Make the flat loudness user input
-                  // TODO: Make the flat loudness different for fanfares
-                  SeqUtils.setLoudness(seq, song.lufs, -19);
-                  
-                } else if(volumeBalancing.startsWith("ideal-")){
-                  // TODO: Implement ideal lufs for OOTRS
-                  var idealLufs = (extension == "mmrs" ? MMCategories.getIdealLufs(song.categories) : OoTCategories.getIdealLufs(song.categories)).map(Number);
-                  if(idealLufs.length > 0){
-                    if(volumeBalancing.endsWith("-average")){
-                      var average = idealLufs.reduce((sum, num) => sum + num, 0) / idealLufs.length;
-                      SeqUtils.setLoudness(seq, song.lufs, average);
+              } else if(gameNamesFormat == "abbreviated"){
+                gameName = abbreviatedName;
 
-                    } else if(volumeBalancing.endsWith("-quiet")){
-                      var quietest = Math.min(...idealLufs);
-                      SeqUtils.setLoudness(seq, song.lufs, quietest);
+              } else if(gameNamesFormat == "dynamic"){
+                // Try our best to be under the max length (48 for most console randos)
+                // Prioritize using the longer names
+                // If too long use their shorter variants
+                if(`${song.game} - ${song.song}`.length <= maxLength) gameName = song.game;
+                else if(`${shortName} - ${song.song}`.length <= maxLength) gameName = shortName;
+                else gameName = abbreviatedName;
+              }
+            }
+            
+            // Get the final name for the song using the options selected
+            var extension = song.file.split('.').pop();
+            var finalSongNameUnsafe = `${gameName} - ${song.song}`;
+            var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(finalSongNameUnsafe);
+            otrSequence.name = finalSongNameUnsafe;
+
+            // If using OTR or BCSEQ, skip any song with custom bank or samples (sadly...)
+            if((packFormat.startsWith("otr-") || packFormat == "bcseq") && (song.usesCustomBank || song.usesCustomSamples)) continue;
+
+            // For testing:
+            // finalSongName = `${finalSongName.length}-${finalSongName}`
+
+            var fileName = `${finalSongName}.${extension}`;
+            if(maintainFolderStructure) fileName = song.file; // <- If we want to maintain the folder structure, we just return the path as it is on github
+            
+            // Iterate over every internal file...
+            var z64File = await new JSZip().loadAsync(songFile.async("blob"));
+            var internalFiles = z64File.file(/(.*?)/).sort((a, b) => {
+              // Push any seq file to the end so it's always checked last
+              // We need to do this to easily create other types of packs
+              const isSeqA = a.name.endsWith("seq");
+              const isSeqB = b.name.endsWith("seq");
+              return isSeqA - isSeqB;
+            });
+            var bank = -1;
+
+            for(var i=0; i<internalFiles.length; i++){
+              var file = internalFiles[i];
+              
+              // Change the internal name on ootrs files (not needed for mmrs)
+              if(file.name.endsWith(".meta")){
+                var metaFile = await file.async("text");
+                var lines = metaFile.split('\n');
+                lines[0] = finalSongNameUnsafe; // The first line is the song name!
+
+                // Check the bank, and if we need to change it...
+                bank = parseInt(lines[1], 16)
+                if(packFormat == "otr-2s2h" || packFormat == "bcseq") {
+                  bank = SeqUtils.ootToMMBank(bank);
+                  if(bank == -1) {
+                    console.log(fileName + " UNCOMPATIBLE BANK - Skipping...");
+                    continue selectionsLoop;
+                  } 
+                  lines[1] = bank.toString(16);
+                }
+                
+                z64File.file(file.name, lines.join('\n'));
+                otrSequence.metaData = lines.join('\n');
+              }
+
+              // Change the internal name on modern files (yaml metadata format)
+              if(file.name.endsWith(".metadata")){
+                // TODO: Seems that Crin won't be pursuing this anymore, but I'll still keep this here
+                var metadataYaml = YAML.parse(await file.async("text"));
+                metadataYaml["metadata"]["display name"] = finalSongName;
+                z64File.file(file.name, YAML.stringify(metadataYaml));
+              }
+
+              // Changes to the seq files
+              if(file.name.endsWith(".seq") || file.name.endsWith(".zseq") || file.name.endsWith(".aseq")){
+                // Pretty sure using uint8array requires compatibility from the browser...
+                // TODO: Check if it works in other browsers than chrome
+                var seq = await file.async("uint8array");
+                
+                // Check if it's not duplicated... skip if it is
+                // TODO: Maybe allow the user to select which one to use...?
+                if(excludeDuplicates){
+                  var hash = md5(SeqUtils.preAmplifyVolume(new Uint8Array(seq), -256)); // Set volume to zero; remember we are using dynamic loudness
+                  if(selectionsHashMap.includes(hash)) {
+                    console.log(fileName + " DUPE FOUND - Skipping...");
+                    continue selectionsLoop; // ew, goto, but well, this is it's real use case!
+                  }
+                  else selectionsHashMap.push(hash);
+                }
+                
+
+                // Balance the volume of the files
+                // We can only do it if we know their loudness
+                if(song.lufs){
+                  if(volumeBalancing == "flat"){
+                    // TODO: Make the flat loudness user input
+                    // TODO: Make the flat loudness different for fanfares
+                    SeqUtils.setLoudness(seq, song.lufs, -19);
+                    
+                  } else if(volumeBalancing.startsWith("ideal-")){
+                    // TODO: Implement ideal lufs for OOTRS
+                    var idealLufs = (extension == "mmrs" ? MMCategories.getIdealLufs(song.categories) : OoTCategories.getIdealLufs(song.categories)).map(Number);
+                    if(idealLufs.length > 0){
+                      if(volumeBalancing.endsWith("-average")){
+                        var average = idealLufs.reduce((sum, num) => sum + num, 0) / idealLufs.length;
+                        SeqUtils.setLoudness(seq, song.lufs, average);
+
+                      } else if(volumeBalancing.endsWith("-quiet")){
+                        var quietest = Math.min(...idealLufs);
+                        SeqUtils.setLoudness(seq, song.lufs, quietest);
+                      }
                     }
                   }
                 }
-              }
-              
-              // Apply the volume pre amplifying
-              // TODO: CONVERT THIS INTO DECIBELS!!!
-              if(volumePreAmplifying != 0){
-                SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
-              }
-
-              // If this is mmrs and otr, build a metadata string for it
-              if(packFormat.startsWith("otr-") && extension == "mmrs"){
-                var bank = file.name.split(".")[0];
-                if(packFormat == "otr-soh") {
-                  var bankInt = SeqUtils.mmToOOTBank(bank);
-                  if(bankInt == -1) {
-                    console.log(fileName + " UNCOMPATIBLE BANK - Skipping...");
-                    continue selectionsLoop;
-                  }
-                  bank = bankInt.toString(16);
+                
+                // Apply the volume pre amplifying
+                // TODO: CONVERT THIS INTO DECIBELS!!!
+                if(volumePreAmplifying != 0){
+                  SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
                 }
-                otrSequence.metaData = `${finalSongNameUnsafe}\n${bank}\n${song.type}`;
+
+                // If this is mmrs and otr, build a metadata string for it
+                if((packFormat.startsWith("otr-") || packFormat == "bcseq") && extension == "mmrs"){
+                  bank = parseInt(file.name.split(".")[0], 16);
+                  if(packFormat == "otr-soh") {
+                    var bank = SeqUtils.mmToOOTBank(bank);
+                    if(bank == -1) {
+                      console.log(fileName + " UNCOMPATIBLE BANK - Skipping...");
+                      continue selectionsLoop;
+                    }
+                  }
+                  otrSequence.metaData = `${finalSongNameUnsafe}\n${bank.toString(16)}\n${song.type}`;
+                }
+                
+
+                // If BCSEQ add NOW the file (since we need to transform the seq), and also create the cmeta file
+                if(packFormat == "bcseq"){
+                  var bankOffset = 4; // All banks in 3DS are offset by 4
+                  var folder = song.type == "bgm" ? "!Background Music" : "!Melodies/!Fanfares";
+                  var extraSafeName = finalSongName.replaceAll("꞉", "").replaceAll("∕", "");
+                  zip.file(`${folder}/${extraSafeName}.bcseq`, seqToBcseq(seq, { bank }));
+                  zip.file(`${folder}/${extraSafeName}.cmeta`, `banks    = ${(bank + bankOffset)}\nchFlags  = 0b1111111111111111\nvolume   = 100%\ncategory = ${(song.type == "bgm" ? "Background Music" : "Fanfares")}`);
+                
+                } else{
+                  z64File.file(file.name, seq);
+                  otrSequence.seqData = seq;
+                }
               }
-
-              z64File.file(file.name, seq);
-              otrSequence.seqData = seq;
             }
-          }
-          
-          // Add the file
-          songCount++;
-          console.log(`Packing: ${fileName}`);
-          setLoadingOverlayText(`Packing... ${songCount} files`);
+            
+            // Add the file
+            songCount++;
+            console.log(`Packing: ${fileName}`);
+            setLoadingOverlayText(`Packing... ${songCount} files`);
 
-          // For ZIP, add it to the archive
-          // For OTR, push it to the list for packing later
-          if(packFormat == "zip") zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
-          else if(packFormat.startsWith("otr-")) otr.push(otrSequence);
+            // For ZIP, add it to the archive
+            // For OTR, push it to the list for packing later
+            if(packFormat == "zip") zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
+            else if(packFormat.startsWith("otr-")) otr.push(otrSequence);
+
+          } catch(e){
+            // An error ocurred... skip this track
+          }
         }
         
         // Finally, download the generated pack
         setLoadingOverlayText(`Done!`);
 
-        if(packFormat == "zip"){
+        if(packFormat == "zip" || packFormat == "bcseq"){
           var blob = await zip.generateAsync({ type: "blob" });
           saveAs(blob, `${selectedRepo.name} - Song Pack - ${Date.now()}.zip`);
 
@@ -1791,9 +1817,10 @@
                 </a>
                 <span style="width: 2px; background-color: var(--bs-primary-text-emphasis) !important"></span>
                 <select class="btn btn-primary ps-1" style="max-width: 102px !important; border-top-right-radius: 0" id="ddlPackFormat">
-                  <option value="zip">ZIP</option>
-                  <option value="otr-soh">OTR (SoH)</option>
-                  <option value="otr-2s2h">OTR (2S2H)</option>
+                  <option value="zip">N64 (.zip)</option>
+                  <option value="otr-soh">SoH (.otr)</option>
+                  <option value="otr-2s2h">2S2H (.otr)</option>
+                  <option value="bcseq">3DS (.bcseq)</option>
                 </select>
               </div>
             </li>

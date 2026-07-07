@@ -25,6 +25,9 @@
  * @property {string} name human-readable bank name
  * @property {Object<number,string>} slots occupied melodic slots (index -> instrument)
  * @property {boolean} drum whether program 0x7F (drum kit) is present
+ * @property {number[]} [order] explicit 3DS instrument order (occupied slots, first to
+ *   last) — overrides the default ascending-slot compaction for banks whose 3DS layout
+ *   reorders instruments (e.g. 0x21 places its Bell last, right before the drums)
  */
 
 /** N64 program number of the drum kit (FONTANY_INSTR_PERCUSSION). */
@@ -158,7 +161,12 @@ export const BANKS = {
     0x0: 'Malon', 0x1: 'Malon', 0x2: 'Clarinet', /* 0x3 empty */ 0x4: 'Horn',
     0x5: 'Oboe', 0x6: 'Harp', 0x7: 'Fiddle', 0x8: 'Glockenspiel', /* 0x9 empty */
     0xa: 'Strings', 0xb: 'Strings', /* 0xc empty */ 0xd: 'Bell', 0xe: 'Harp',
-    0xf: 'Female Choir' } },
+    0xf: 'Female Choir' },
+    // EXCEPTION: on 3DS the Bell (0xD) sits LAST, right before the drums — not in slot
+    // order between Strings and Harp. So compaction must place Bell after Harp (0xE) and
+    // Female Choir (0xF), which shift down to fill its gap. `order` overrides the default
+    // ascending compaction with the real 3DS instrument order.
+    order: [0x0, 0x1, 0x2, 0x4, 0x5, 0x6, 0x7, 0x8, 0xa, 0xb, 0xe, 0xf, 0xd] },
 
   0x22: { name: 'Ending sequence 2', drum: true, slots: {
     0x0: 'Dulcimer', 0x1: 'Ocarina', 0x2: 'Bassoon', 0x3: 'Oboe', 0x4: 'Female Choir',
@@ -185,11 +193,12 @@ function occupiedSlots(bank) {
 
 /**
  * Build a per-bank program remap that compacts N64 program numbers to their 3DS
- * positions: each melodic slot maps to its rank among the bank's occupied melodic
- * slots (empty slots removed), and the drum kit 0x7F maps to the COUNT of occupied
- * melodic slots (it is squashed right after the last melodic instrument). Unknown
- * banks and out-of-range programs (SFX 126, synth waves 128+) pass through unchanged
- * — those mappings are not yet confirmed (see PLAN.md Phase 7).
+ * positions: each melodic slot maps to its position in the bank's 3DS instrument order
+ * (empty slots removed) — normally ascending slot order, but `bank.order` overrides it
+ * for banks whose 3DS layout reorders instruments (e.g. 0x21's Bell). The drum kit 0x7F
+ * maps to the COUNT of occupied melodic slots (squashed right after the last melodic
+ * instrument). Unknown banks and out-of-range programs (SFX 126, synth waves 128+) pass
+ * through unchanged — those mappings are not yet confirmed (see PLAN.md Phase 7).
  *
  * @param {number} bankId OoT bank id (e.g. 0x03 for Hyrule Field)
  * @returns {(program:number)=>number}
@@ -198,12 +207,13 @@ export function makeProgramRemap(bankId) {
   const bank = BANKS[bankId];
   if (!bank) return (p) => p; // unknown bank -> identity
   const occupied = occupiedSlots(bank);
+  const order = bank.order || occupied; // explicit 3DS order, else ascending slot order
   return (program) => {
-    if (program === N64_DRUM_PROGRAM) return occupied.length; // drum -> after last melodic slot
+    if (program === N64_DRUM_PROGRAM) return order.length; // drum -> after last melodic slot
     if (program < 16) {
-      // Compact: new index = number of occupied melodic slots below this one.
-      // (For an occupied slot this is its own rank; for an emptied slot it still
-      // lands at the sensible compacted position.)
+      const idx = order.indexOf(program);
+      if (idx >= 0) return idx; // occupied slot -> its position in the 3DS order
+      // Emptied/absent slot (shouldn't be referenced): compact to the sensible position.
       let n = 0;
       for (const s of occupied) { if (s < program) n++; else break; }
       return n;

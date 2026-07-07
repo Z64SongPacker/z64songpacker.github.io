@@ -1417,8 +1417,8 @@
                 lines[0] = finalSongNameUnsafe; // The first line is the song name!
 
                 // Check the bank, and if we need to change it...
-                bank = parseInt(lines[1], 16)
-                if(packFormat == "otr-2s2h" || packFormat == "bcseq") {
+                bank = parseInt(lines[1], 16);
+                if(packFormat == "otr-2s2h") {
                   bank = SeqUtils.ootToMMBank(bank);
                   if(bank == -1) {
                     console.log(fileName + " UNCOMPATIBLE BANK - Skipping...");
@@ -1504,8 +1504,12 @@
                 // If BCSEQ add NOW the file (since we need to transform the seq), and also create the cmeta file
                 if(packFormat == "bcseq"){
                   var bankOffset = 4; // All banks in 3DS are offset by 4
+
+                  console.log("bank: " + bank);
+                  console.log("final bank: " + (bank + bankOffset))
+
                   var folder = song.type == "bgm" ? "!Background Music" : "!Melodies/!Fanfares";
-                  var extraSafeName = finalSongName.replaceAll("꞉", "").replaceAll("∕", "");
+                  var extraSafeName = finalSongName.replaceAll("꞉", "").replaceAll("∕", "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
                   zip.file(`${folder}/${extraSafeName}.bcseq`, seqToBcseq(seq, { bank }));
                   zip.file(`${folder}/${extraSafeName}.cmeta`, `banks    = ${(bank + bankOffset)}\nchFlags  = 0b1111111111111111\nvolume   = 100%\ncategory = ${(song.type == "bgm" ? "Background Music" : "Fanfares")}`);
                 

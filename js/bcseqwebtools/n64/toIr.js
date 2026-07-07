@@ -14,8 +14,14 @@
 //     single mergeable timeline (necessary to combine overlapping layers).
 //   - Track 0 doubles as conductor: sequence-level setup (AllocateTrack + an OpenTrack
 //     per other track, Tempo, MainVolume) precedes its own channel's content.
-//   - Channel control maps: instrument -> ProgramChange, vol -> Volume, pan -> Pan;
-//     transposition (seq + channel + layer) is baked into note keys.
+//   - Channel control maps: instrument -> ProgramChange, vol -> Volume, pan -> Pan,
+//     pitch bend (bend/bendfine) -> PitchBend (+ a BendRange); transposition
+//     (seq + channel + layer) is baked into note keys. Instrument, volume and bend all
+//     ride the channel timeline, so mid-stream switches/ramps/sweeps carry over (not
+//     just the first/last value).
+//   - A channel that NEVER assigns an instrument (no instr/font/fontinstr on the
+//     channel and no instr on a layer) is MUTED — dropped entirely, matching N64 (which
+//     leaves it silent) instead of letting 3DS fall back to a default program.
 //   - Conditional branches (beqz/bltz/bgez) are resolved as "not taken", and
 //     IO/dyntable/rand/effect opcodes are ignored — no musical BCSEQ equivalent.
 //
@@ -45,6 +51,12 @@ import { N64_DRUM_PROGRAM } from './banks.js';
 const MIDI_A0 = 21; // N64 pitch index 0 == PITCH_A0 == MIDI note 21.
 const MAX_TRACKS = 16; // BCSEQ hard cap (u16 track mask, track 0 implicit).
 const STEP_BUDGET = 200000; // guard against unbounded layer self-loops.
+// N64 pitch-bend ranges (semitones). `bend` (0xD3) indexes a one-OCTAVE frequency
+// table; `bendfine` (0xEE) a one-SEMITONE table. Both are linear in semitones over the
+// s8 arg, so they map to 3DS PitchBend (s8 over +/-BendRange semitones) 1:1 once the
+// track's BendRange is set to the range in use.
+const BEND_RANGE_OCTAVE = 12;
+const BEND_RANGE_SEMITONE = 1;
 
 /**
  * @param {ReturnType<import('./reader.js').read>} model raw N64 model
@@ -79,8 +91,12 @@ export function toIr(model, opts = {}) {
   // per-track `Jump` loops stay in sync). No backward jump -> no looping (plays once).
   const loop = seqTl.hasLoop ? { start: seqTl.loopStartTick, len: seqTl.loopLen } : null;
 
-  // Group channel loads by channel number (first-seen order), one track each.
-  const groups = groupByChannelNumber(model.channels);
+  // Group channel loads by channel number (first-seen order), one track each. Drop
+  // groups that never assign an instrument (silent on N64 — see groupHasProgram); if
+  // that would leave nothing, keep them all rather than emit an empty sequence.
+  const allGroups = groupByChannelNumber(model.channels);
+  const withProgram = allGroups.filter(groupHasProgram);
+  const groups = withProgram.length ? withProgram : allGroups;
 
   const seq = new Sequence();
   const push = (ev) => seq.push(ev);
@@ -126,6 +142,27 @@ function groupByChannelNumber(channels) {
 }
 
 /**
+ * Whether a channel-number group ever assigns an instrument, across ALL its loads (a
+ * re-pointed channel may set `instr` in its intro load and inherit it in the loop load)
+ * and their layers. A group with none is silent on N64 — the audio driver plays notes
+ * with no sample — so it must be muted rather than emitted (3DS would otherwise sound a
+ * default program). Checks `instr`/`fontinstr` on the channel and `instr` on any layer.
+ * @param {{num:number, loads:object[]}} group
+ * @returns {boolean}
+ */
+function groupHasProgram(group) {
+  for (const load of group.loads) {
+    for (const c of load.region.cmds.values()) {
+      if (c.name === 'instr' || c.name === 'fontinstr') return true;
+    }
+    for (const layer of load.layers) {
+      for (const c of layer.region.cmds.values()) if (c.name === 'instr') return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Emit one track: a channel-control prefix followed by one merged, timeline-ordered
  * stream of the channel's notes, its volume changes, and (for track 0) the sequence's
  * tempo changes — all across every load of this channel number.
@@ -143,21 +180,18 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
   const converting = control.program === N64_DRUM_PROGRAM && remapDrumKey != null;
   const mapKey = converting ? remapDrumKey : (k) => k;
 
-  push(cmd('NoteWait', { value: 0 })); // notes stack; explicit Wait advances time
-  if (control.program != null) push(cmd('ProgramChange', { value: remapProgram(control.program) & 0x7fffffff }));
-  // N64 defaults an unset channel pan to CENTER (64); 3DS defaults to hard LEFT (0), so
-  // ALWAYS emit an explicit Pan (else channels without a `pan` command play only left).
-  push(cmd('Pan', { value: control.pan != null ? control.pan : 64 }));
-
   // Build one timed event list, merging across the channel's loads. Re-pointed loads
   // (intro then main) are laid end to end via segBase. Each load's length and its
   // layers' start offsets come from the CHANNEL script's own timeline (its delays /
   // ldlayer positions), not just the layer note lengths — a load may be a layer-less
   // intro (e.g. `instr; delay 288; end`) whose 288-tick delay must still advance the
-  // clock, or it may load a layer partway through the channel. Volume commands ride
-  // the same channel timeline (a vol ramp is `vol; cdelay; vol; cdelay; …`) so they
-  // stay time-accurate. `order` puts control changes before notes at the same tick.
+  // clock, or it may load a layer partway through the channel. Volume, instrument and
+  // pitch-bend commands ride the same channel timeline (a vol ramp is
+  // `vol; cdelay; vol; …`; a sweep is `bend; cdelay; bend; …`) so they stay
+  // time-accurate. `order` puts control changes before notes at the same tick.
   const events = []; // {tick, order, ev?} | {tick, order, note:{key,vel,dur}}
+  const programEntries = []; // {tick, value} raw N64 instrument (instr) changes
+  const bendEntries = [];    // {tick, value, range} raw N64 pitch bends
   let segBase = 0;
   for (const load of group.loads) {
     const base = seqTranspose + (collectChannelControl(load.region).transpose || 0);
@@ -165,6 +199,8 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
     for (const v of chTl.vols) {
       events.push({ tick: segBase + v.tick, order: 0, ev: cmd('Volume', { value: v.value & 0xff }) });
     }
+    for (const p of chTl.programs) programEntries.push({ tick: segBase + p.tick, value: p.value });
+    for (const b of chTl.bends) bendEntries.push({ tick: segBase + b.tick, value: b.value, range: b.range });
     for (const layer of load.layers) {
       const startOff = chTl.layerStart.has(layer.start) ? chTl.layerStart.get(layer.start) : 0;
       const tl = resolveLayerTimeline(layer.region, base, converting);
@@ -173,6 +209,30 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
     segBase += chTl.endTick;
   }
   if (tempos) for (const t of tempos) events.push({ tick: t.tick, order: 0, ev: cmd('Tempo', { value: t.value }) });
+
+  // Instrument: the earliest instr goes in the prefix (before any note); later switches
+  // ride the timeline so mid-stream instrument changes carry over. Fall back to the
+  // linearly-collected program if the timeline walk found none (rare control-flow shape).
+  programEntries.sort((a, b) => a.tick - b.tick);
+  const firstProgram = programEntries.length ? programEntries[0].value : control.program;
+  for (let k = 1; k < programEntries.length; k++) {
+    events.push({ tick: programEntries[k].tick, order: 0, ev: cmd('ProgramChange', { value: remapProgram(programEntries[k].value) & 0x7fffffff }) });
+  }
+
+  // Pitch bend: `bend` spans +/-1 octave, `bendfine` +/-1 semitone. Set the track's
+  // BendRange to the widest range in use and scale each value to it (identity in the
+  // common single-range case). No bends -> no BendRange, no PitchBend.
+  const trackBendRange = bendEntries.length ? Math.max(...bendEntries.map((b) => b.range)) : 0;
+  for (const b of bendEntries) {
+    events.push({ tick: b.tick, order: 0, ev: cmd('PitchBend', { value: scaleBend(b.value, b.range, trackBendRange) }) });
+  }
+
+  // --- Prefix: notes stack (NoteWait 0), the initial instrument, an explicit Pan
+  // (N64 unset pan == CENTER 64; 3DS would otherwise play hard LEFT), and BendRange. ---
+  push(cmd('NoteWait', { value: 0 }));
+  if (firstProgram != null) push(cmd('ProgramChange', { value: remapProgram(firstProgram) & 0x7fffffff }));
+  push(cmd('Pan', { value: control.pan != null ? control.pan : 64 }));
+  if (trackBendRange) push(cmd('BendRange', { value: trackBendRange }));
 
   // Loop only a track that actually has notes (a note-less conductor track just Fins).
   const looped = loop != null && events.some((e) => e.note);
@@ -192,7 +252,11 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
     if (e.loopMark) { push({ type: 'Label', name: loopLabel }); continue; }
     if (!e.note) { push(e.ev); continue; }
     const key = mapKey(e.note.key);
-    if (key != null) push({ type: 'Note', key: clampKey(key), velocity: e.note.vel & 0x7f, duration: scaleTicks(e.note.dur) });
+    // Note duration is floored at 1 tick. A source note with delay 0 (immediately
+    // overtaken on N64) yields dur 0, which on 3DS means "no gate" -> the note never
+    // releases and rings forever. Real OoT3D .bcseq files never use a 0-tick note (their
+    // floor is 1), so clamp to 1 to keep the blip audible-length without lingering.
+    if (key != null) push({ type: 'Note', key: clampKey(key), velocity: e.note.vel & 0x7f, duration: Math.max(1, scaleTicks(e.note.dur)) });
   }
 
   // When looping, advance the clock to the master loop length so this track's Jump loops
@@ -211,12 +275,16 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
  * timeline and sizes each re-pointed load. Timed `vol` changes are collected too, so a
  * volume ramp (`vol; cdelay; vol; …`) reaches the IR as time-accurate Volume commands.
  * @param {import('./reader.js').RegionModel} region
- * @returns {{endTick:number, layerStart:Map<number,number>, vols:{tick:number,value:number}[]}}
+ * @returns {{endTick:number, layerStart:Map<number,number>,
+ *   vols:{tick:number,value:number}[], programs:{tick:number,value:number}[],
+ *   bends:{tick:number,value:number,range:number}[]}}
  */
 function resolveChannelTimeline(region) {
   const cmds = region.cmds;
   const layerStart = new Map();
   const vols = [];
+  const programs = [];
+  const bends = [];
   let pc = region.start;
   let clock = 0;
   const callStack = [];
@@ -231,6 +299,9 @@ function resolveChannelTimeline(region) {
       case 'delay': clock += c.args[0]; break;
       case 'cdelay': clock += c.packed; break; // low nibble packed into the opcode
       case 'vol': vols.push({ tick: clock, value: c.args[0] }); break;
+      case 'instr': programs.push({ tick: clock, value: c.args[0] }); break;
+      case 'bend': bends.push({ tick: clock, value: c.args[0], range: BEND_RANGE_OCTAVE }); break;
+      case 'bendfine': bends.push({ tick: clock, value: c.args[0], range: BEND_RANGE_SEMITONE }); break;
       case 'ldlayer': case 'rldlayer':
         if (c.target != null && !layerStart.has(c.target)) layerStart.set(c.target, clock);
         break;
@@ -250,7 +321,7 @@ function resolveChannelTimeline(region) {
     }
     pc = next;
   }
-  return { endTick: clock, layerStart, vols };
+  return { endTick: clock, layerStart, vols, programs, bends };
 }
 
 /**
@@ -418,3 +489,14 @@ function firstArg(region, name) {
 function cmd(name, args) { return { type: 'Command', name, args }; }
 function trackLabel(i) { return 'trk' + i; }
 function clampKey(k) { return k < 0 ? 0 : k > 127 ? 127 : k; }
+function clampS8(v) { return v < -128 ? -128 : v > 127 ? 127 : v; }
+
+/**
+ * Scale an N64 pitch-bend value (linear in semitones over its own `range`) onto the
+ * track's chosen BendRange. Identity when the value already uses the track range (the
+ * common case); otherwise rescaled so the sounding semitone offset is preserved.
+ */
+function scaleBend(value, range, trackRange) {
+  if (!trackRange || range === trackRange) return clampS8(value);
+  return clampS8(Math.round((value * range) / trackRange));
+}

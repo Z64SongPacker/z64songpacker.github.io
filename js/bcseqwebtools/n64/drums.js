@@ -37,11 +37,15 @@ const KITS = {
   // Crash 42-53, TimpaniHigh 54-84.  3DS (docs/drums.md, all inverse): 13-28, 29-30,
   // 31-33, 34-45, 47-77 (3DS 46 is a dead Timpani Low slot -> never a target).
   orchestra: [
-    { lo: 21, hi: 36, kind: 'inv', dsHi: 28 }, // Timpani Low  -> 3DS 13-28
+    { lo: 26, hi: 36, kind: 'inv', dsHi: 27 }, // Timpani Low  -> 3DS 13-27
+    { lo: 21, hi: 25, kind: 'to', to: 28 }, // Timpani Low -> Anything lower clamp to 28
     { lo: 37, hi: 38, kind: 'inv', dsHi: 30 }, // Snare High   -> 3DS 29-30
     { lo: 39, hi: 41, kind: 'inv', dsHi: 33 }, // Snare Low    -> 3DS 31-33
-    { lo: 42, hi: 53, kind: 'inv', dsHi: 45 }, // Crash Cymbal -> 3DS 34-45
-    { lo: 54, hi: 84, kind: 'inv', dsHi: 77 }, // Timpani High -> 3DS 47-77
+    { lo: 42, hi: 45, kind: 'inv', dsHi: 45 }, // Crash Cymbal -> Anything lower clamp to 45
+    { lo: 46, hi: 53, kind: 'inv', dsHi: 45 }, // Crash Cymbal -> 3DS 34-45
+    { lo: 54, hi: 59, kind: 'to', dsHi: 76 }, // Timpani High -> Anything lower clamp to 76
+    { lo: 60, hi: 84, kind: 'inv', dsHi: 76 }, // Timpani High -> 3DS 47-77
+    //{ lo: 54, hi: 84, kind: 'inv', dsHi: 77 }, // Timpani High -> 3DS 47-77
   ],
 
   // Tambourine. N64 (gist): EdgeSlap 21-47, HeadSlap 48-49, HeadTap 50-73.  3DS:

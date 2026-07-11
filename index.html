@@ -1123,8 +1123,8 @@
           }
 
           console.log("Playing preview... " + preview);
-          $("#lbTitleSongPreview").text(song.game + " - " + song.song);
-          $("#panelAudioPreview, #panelYouTubePreview").addClass("d-none");
+          $(".lbAudioSongName").text(song.song);
+          $(".lbAudioGameName").text(song.game);
 
           // Stop the current song
           stopPreview();
@@ -1151,8 +1151,11 @@
             var audioPlayer = $("#apSongPreview")[0];
             audioPlayer.load();
             audioPlayer.play();
-            $("#panelAudioPreview").removeClass("d-none");
           }
+
+          // Show the actual player
+          $(".container").addClass("with-preview-controls");
+          updatePreviewControls();
         });
 
         // Show the modal
@@ -1665,8 +1668,55 @@
           $("#fgIncludeOnlyVolumeBalancedTracks").toggleClass("d-none", $(this).val() == "none");
         }).trigger("change");
 
+
+        // ----- AUDIO CONTROLS -----
+        var audio = $("#apSongPreview")[0];
+        $(".btnAudioPlay").on("click", function(){
+          if(audio.paused) audio.play();
+          else audio.pause();
+          updatePreviewControls();
+        });
+        $(".btnAudioForward").on("click", function(){
+
+        });
+        $(".btnAudioRewind").on("click", function(){
+
+        });
+        $(".rgAudioProgress").on("input", function() {
+          var seekTime = ($(this).val() / 100) * audio.duration;
+          audio.currentTime = seekTime;
+          updatePreviewControls();
+        });
+        $("#apSongPreview").on("timeupdate", updatePreviewControls);
+
         
       });
+
+      function updatePreviewControls(){
+        var audio = $("#apSongPreview")[0];
+
+        if(audio.paused) $(".btnAudioPlay").removeClass("fa-circle-pause").addClass("fa-circle-play");
+        else $(".btnAudioPlay").removeClass("fa-circle-play").addClass("fa-circle-pause");
+
+        if (audio.duration) {
+          // Update progress bar percentage
+          const percentage = (audio.currentTime / audio.duration) * 100;
+          $(".rgAudioProgress").val(percentage);
+
+          // Format current time display
+          function setAudioLength(id, time){
+            let mins = Math.floor(time / 60);
+            let secs = Math.floor(time % 60);
+            if (secs < 10) secs = '0' + secs;
+            $(id).text(`${mins}:${secs}`);
+          }
+
+          var currentTime = Math.floor(audio.currentTime);
+          var totalTime = Math.floor(audio.duration);
+          setAudioLength(".lbAudioLengthCurrent", currentTime);
+          setAudioLength(".lbAudioLengthRemaining", totalTime - currentTime);
+        }
+      }
     </script>
 
 
@@ -1975,7 +2025,7 @@
     </nav>
 
     <div class="container mt-3">
-      <div class="row g-3">
+      <div class="row g-3 ">
         <div class="col-12 d-none" id="panelErrorView">
           <div class="card bg-danger-subtle text-center text-danger-emphasis py-3">
             <i class="fa-solid fa-exclamation-triangle opacity-75 fa-2x mb-2"></i>
@@ -1995,9 +2045,7 @@
 
               <div id="lbTotalSelected" class="col-auto">0/0</div>
             </div>
-            <div id="panelGames" class="overflow-y-auto overflow-x-hidden" style="height: calc(100vh - 46.5px - 7rem)">
-    
-            </div>
+            <div id="panelGames" class="game-view overflow-y-auto overflow-x-hidden"></div>
           </div>
         </div>
   
@@ -2012,25 +2060,83 @@
               </div>
             </div>
             
-            <div class="overflow-y-auto overflow-x-hidden" style="height: calc(100vh - 46.5px - 6.65rem)">
-              <div id="panelSongView">
-                <div class="sv-collapse row mb-0 ps-3 py-3" data-bs-toggle="collapse" data-bs-target="#panelSongs">
-                  <h5 class="col mb-0">Background Music (BGMs)</h5>
-                  <span class="col-auto" id="lbSelectedSongsCount">0/0 selected</span>
-                  <i class="col-auto fa-solid fa-caret-down me-3 mt-1"></i>
+            <div class="song-view overflow-y-auto overflow-x-hidden">
+              <div class="sv-collapse row mb-0 ps-3 py-3" data-bs-toggle="collapse" data-bs-target="#panelSongs">
+                <h5 class="col mb-0">Background Music (BGMs)</h5>
+                <span class="col-auto" id="lbSelectedSongsCount">0/0 selected</span>
+                <i class="col-auto fa-solid fa-caret-down me-3 mt-1"></i>
+              </div>
+              <div id="panelSongs" class="row px-3 pt-2 pb-3 g-2 mt-0 collapse show"></div>
+              
+              <hr class="my-0">
+              <div class="sv-collapse row mb-0 ps-3 py-3" data-bs-toggle="collapse" data-bs-target="#panelFanfares">
+                <h5 class="col mb-0">Fanfares</h5>
+                <span class="col-auto" id="lbSelectedFanfaresCount">0/0 selected</span>
+                <i class="col-auto fa-solid fa-caret-down me-3 mt-1"></i>
+              </div>
+              <div id="panelFanfares" class="row px-3 pt-2 pb-3 g-2 mt-0 collapse show"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MUSIC PLAYER -->
+        <div id="panelSongPreviewBottom" class="preview-controls col-12">
+          <div class="card bg-body-tertiary">
+            <div class="row align-items-center">
+              <div class="col-4">
+                <div class="row ms-3 lh-sm">
+                  <div class="w-100"><b class="lbAudioSongName">Song name</b></div>
+                  <div class="w-100"><span class="lbAudioGameName opacity-50" style="font-size: .9em">Game name</span></div>
                 </div>
-                <div id="panelSongs" class="row px-3 pt-2 pb-3 g-2 mt-0 collapse show"></div>
+              </div>
+
+              <div class="col-4">
+                <div class="row align-items-center pt-2">
+                  <i class="btnAudioForward icon-button col-auto fa-solid fa-lg fa-backward-fast ms-auto"></i>
+                  <i class="btnAudioPlay icon-button col-auto fa-solid fa-2x fa-circle-play"></i>
+                  <i class="btnAudioRewind icon-button col-auto fa-solid fa-lg fa-forward-fast me-auto"></i>
+                </div>
+                <div class="row align-items-center py-1 g-2">
+                  <div class="lbAudioLengthCurrent col-auto mt-1">0:00</div>
+                  <div class="col">
+                    <input type="range" class="rgAudioProgress w-100">
+                  </div>
+                  <div class="lbAudioLengthRemaining col-auto mt-1">0:00</div>
+                </div>
+              </div>
+
+              <div class="col-4">
                 
-                <hr class="my-0">
-                <div class="sv-collapse row mb-0 ps-3 py-3" data-bs-toggle="collapse" data-bs-target="#panelFanfares">
-                  <h5 class="col mb-0">Fanfares</h5>
-                  <span class="col-auto" id="lbSelectedFanfaresCount">0/0 selected</span>
-                  <i class="col-auto fa-solid fa-caret-down me-3 mt-1"></i>
-                </div>
-                <div id="panelFanfares" class="row px-3 pt-2 pb-3 g-2 mt-0 collapse show"></div>
               </div>
             </div>
           </div>
+        </div>
+
+      </div>
+    </div>
+
+
+
+    <!-- SONG PREVIEW -->
+
+    <div class="w-100 bg-primary-subtle d-none">
+      <div id="panelAudioPreview">
+        <audio controls id="apSongPreview">
+          <source src="https://raw.githubusercontent.com/CristobalPenaloza/OoT-Custom-Sequences/Custom-Music-2.0/previews/Monster Hunter Generations Ultimate/Silver Winged Scarlet Star - Valstrax.mp3" type="audio/mpeg" id="asrcSongPreview">
+        </audio>
+      </div>
+      
+      <div id="panelYouTubePreview" class="responsive-iframe">
+        <iframe id="ytpSongPreview" type="text/html" width="100%" height="auto" src="" frameborder="0"></iframe>
+      </div>
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3">
+      <div id="toast" class="toast align-items-center bg-primary-subtle text-primary-emphasis"
+        role="alert" aria-live="assertive" aria-atomic="true" style="width: 500px !important">
+        <div class="d-flex">
+          <div class="toast-body" id="toastBody" style="word-break: break-word"></div>
+          <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
         </div>
       </div>
     </div>
@@ -2139,44 +2245,6 @@
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
           </div>
-        </div>
-      </div>
-    </div>
-
-
-    <!-- SONG PREVIEW -->
-    <div class="modal fade" id="modalSongPreview" tabindex="-1">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h1 class="modal-title fs-5" id="lbTitleSongPreview">Preview</h1>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body text-center">
-            <div id="panelAudioPreview">
-              <audio controls autoplay id="apSongPreview">
-                <source src="" type="audio/mpeg" id="asrcSongPreview">
-              </audio>
-            </div>
-            
-            <div id="panelYouTubePreview" class="responsive-iframe">
-              <iframe id="ytpSongPreview" type="text/html" width="100%" height="auto" src="" frameborder="0"></iframe>
-            </div>
-            
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3">
-      <div id="toast" class="toast align-items-center bg-primary-subtle text-primary-emphasis"
-        role="alert" aria-live="assertive" aria-atomic="true" style="width: 500px !important">
-        <div class="d-flex">
-          <div class="toast-body" id="toastBody" style="word-break: break-word"></div>
-          <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
         </div>
       </div>
     </div>

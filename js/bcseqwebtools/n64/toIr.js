@@ -49,7 +49,10 @@
 // Looping is intrinsic, taken from the .seq (NOT a user option): if the seq section
 // ends in a backward `jump`, each track loops with a `Jump` back to a label at the loop
 // point (the intro before it plays once); all tracks are padded to the master period so
-// they stay in sync. A seq that ends with `end` plays once. (See resolveSeqTimeline.)
+// they stay in sync. A seq that ends with `end` plays once — and there too every track is
+// padded to the sequence's total duration (the seq track's `end` tick), because on 3DS the
+// whole sequence stops when the SHORTEST track hits Fin; without the pad a short track cut
+// the longer ones off early (fanfares). (See resolveSeqTimeline / emitTrack.)
 //
 // Timebase: N64 delays are tatums (48/beat). If opts.bcseqTimebase differs from
 // opts.n64Timebase (both default 48), every delay/duration is scaled and a Timebase
@@ -141,7 +144,7 @@ export function toIr(model, opts = {}) {
   for (let i = 0; i < groups.length; i++) {
     if (i > 0) push({ type: 'Label', name: trackLabel(i) });
     const loopLabel = loop ? 'loop' + i : null;
-    const looped = emitTrack(push, groups[i], seqTranspose, routeProgram, remapDrumKey, scaleTicks, i === 0 ? seqTempos : null, loop, loopLabel);
+    const looped = emitTrack(push, groups[i], seqTranspose, routeProgram, remapDrumKey, scaleTicks, i === 0 ? seqTempos : null, loop, loopLabel, seqTl.loopLen);
     if (looped) push(cmd('Jump', { offset: loopLabel }));
     push(cmd('Fin', {}));
   }
@@ -196,9 +199,12 @@ function groupHasProgram(group) {
  * @param {number[]} tempos conductor tempo events `{tick,value}` (track 0 only; else null)
  * @param {{start:number,len:number}|null} loop loop-start tick + master period, or null
  * @param {string|null} loopLabel name for this track's loop label (when looping)
+ * @param {number} masterEnd the sequence's total duration in source ticks (the seq
+ *   track's clock at `end`); a non-looping track is padded to it so it does not `Fin`
+ *   before the others and cut the sequence off early (see the padding at the tail)
  * @returns {boolean} whether this track looped (a loop label + Jump are warranted)
  */
-function emitTrack(push, group, seqTranspose, routeProgram, remapDrumKey, scaleTicks, tempos, loop, loopLabel) {
+function emitTrack(push, group, seqTranspose, routeProgram, remapDrumKey, scaleTicks, tempos, loop, loopLabel, masterEnd) {
   const control = collectChannelControl(group.loads[0].region);
   // Drum channels (N64 program 0x7F) index a reordered 3DS drum kit. When a kit is
   // active, remap the RAW note key (percussion keys index a sample table, so transpose
@@ -332,10 +338,19 @@ function emitTrack(push, group, seqTranspose, routeProgram, remapDrumKey, scaleT
     if (key != null) push({ type: 'Note', key: clampKey(key), velocity: e.note.vel & 0x7f, duration: Math.max(1, scaleTicks(e.note.dur)) });
   }
 
-  // When looping, advance the clock to the master loop length so this track's Jump loops
-  // at the same period as every other track (its notes may end earlier, e.g. a trailing
-  // rest before the seq's backward jump). No-op when not looping.
-  if (looped && loop.len > clock) push(cmd('Wait', { value: scaleTicks(loop.len - clock) }));
+  // Advance the clock to the master period so this track ends in sync with the others.
+  // - Looping: pad to the loop length before the Jump, so every track loops at the same
+  //   period (a track's notes may end earlier, e.g. a trailing rest before the backward jump).
+  // - Not looping: pad to the sequence's total duration (`masterEnd`). On 3DS the whole
+  //   sequence stops when the SHORTEST track hits Fin, so an un-padded short track would cut
+  //   the longer tracks' tails off early — the fanfare bug. N64 keeps every channel alive
+  //   until the seq track's `end`; padding to masterEnd reproduces that. Only extends, never
+  //   shortens (a track already longer than masterEnd keeps its length).
+  if (looped) {
+    if (loop.len > clock) push(cmd('Wait', { value: scaleTicks(loop.len - clock) }));
+  } else if (masterEnd > clock) {
+    push(cmd('Wait', { value: scaleTicks(masterEnd - clock) }));
+  }
   return looped;
 }
 

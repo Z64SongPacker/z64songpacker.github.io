@@ -33,6 +33,118 @@
 /** N64 program number of the drum kit (FONTANY_INSTR_PERCUSSION). */
 export const N64_DRUM_PROGRAM = 0x7f;
 
+// --- Chiptune (synth wave) instruments -----------------------------------------------
+// N64 exposes 8 chiptune waves at programs 0x80..0x87 in EVERY bank. On 3DS they instead
+// live in ONE dedicated bank (the game's bank 4), at the instrument numbers below. So a
+// track that selects a chiptune wave must `BankSelect` that bank first, then `BankSelect`
+// back to its own bank before playing any normal instrument again. Unlike the melodic
+// compaction this mapping is FIXED (not per-bank) and always applied — a chiptune program
+// never routes through a per-bank `remapProgram`. Source: docs/sfx-banks.md "Chiptune
+// Instruments".
+//
+// IMPORTANT: `BankSelect` selects by the accompanying cmeta's bank INDEX (0..3), NOT the
+// global bank id. Index 0 is always the sequence's main bank; index 1 is always the
+// chiptune bank (game bank 4). So chiptune switches to index 1, and switching back is to
+// index 0 — the game bank id 4 is only for reference.
+
+/** cmeta bank-list index that holds the chiptune waves (always index 1; game bank 4). */
+export const CHIPTUNE_BANK = 0x01;
+
+/** cmeta bank-list index a sequence uses by default (index 0, its main bank). */
+export const DEFAULT_BANK = 0x00;
+
+/** N64 chiptune program (0x80..0x87) -> 3DS bank-4 instrument number. */
+const CHIPTUNE_INSTR = {
+  0x80: 11, // Saw Wave
+  0x81: 14, // Triangle Wave
+  0x82: 9, //  Sine Wave
+  0x83: 17, // Square Wave
+  0x84: 12, // Sawtooth Wave
+  0x85: 10, // Noisy / Smooth Wave (close enough)
+  0x86: 15, // Smooth Square Wave (close enough)
+  0x87: 15, // Softer Square (close enough)
+};
+
+/**
+ * The 3DS bank-4 instrument number for an N64 chiptune program (0x80..0x87), or null when
+ * the program is not a chiptune wave (so the caller keeps its normal bank/remap path).
+ * @param {number} program N64 program number
+ * @returns {number|null}
+ */
+export function chiptuneInstrument(program) {
+  return CHIPTUNE_INSTR[program] != null ? CHIPTUNE_INSTR[program] : null;
+}
+
+// --- N64 bank 0x00 (Sound Effects) -> four 3DS banks ---------------------------------
+// N64 packs all its sound effects into ONE bank (0x00). On 3DS those SFX are spread across
+// FOUR separate banks, so a bank-0x00 song must switch between them with BankSelect. As
+// everywhere, BankSelect takes the cmeta bank-list INDEX (0..3), not the game bank id: for
+// a bank-0x00 song the cmeta lists game banks [0, 1, 2, 4] at indices [0, 1, 2, 3]. Index
+// 3 (game bank 4) is also where this bank's chiptune waves live (so chiptune here uses
+// index 3, not the index-1 used by melodic banks). Source: docs/sfx-banks.md
+// "Bank 0x00 (Sound Effects)".
+
+/** N64 bank id whose SFX are split across four 3DS banks. */
+export const SFX_BANK = 0x00;
+
+/** Game 3DS bank id -> cmeta bank-list index for a bank-0x00 song. */
+const SFX_BANK_INDEX = { 0: 0, 1: 1, 2: 2, 4: 3 };
+
+/** BankSelect index of the chiptune bank (game bank 4) for a bank-0x00 song. */
+export const SFX_CHIPTUNE_INDEX = SFX_BANK_INDEX[4]; // 3
+
+// N64 bank-0x00 program (DECIMAL SFX id from the doc) -> [3DS game bank, instrument].
+// The game bank is turned into a BankSelect index via SFX_BANK_INDEX at lookup time.
+// Program 127 (0x7F) is this bank's drum kit (Tambourine/Rain). Chiptunes (0x80..0x87) are
+// NOT listed here — they route through chiptuneInstrument to bank index 3 in the router.
+const SFX_BANK0 = {
+  0: [0, 0], 1: [0, 1], 2: [0, 2], 3: [0, 3], 4: [0, 4], 5: [0, 5], 6: [0, 6], 7: [0, 7],
+  8: [0, 9], 9: [0, 10], 10: [0, 11], 11: [0, 8], 12: [0, 12], 13: [0, 13], 14: [0, 14],
+  15: [0, 15], 16: [0, 18], 17: [0, 16], 18: [0, 17], 19: [0, 18], 20: [0, 19], 21: [0, 20],
+  22: [0, 21], 23: [0, 22], 24: [0, 23], 25: [0, 24],
+  26: [1, 0], 27: [1, 1], 28: [1, 2], 29: [1, 3], 30: [1, 4], 31: [1, 5], 32: [1, 7],
+  33: [1, 6], 34: [1, 8], 35: [1, 9], 36: [1, 10], 37: [1, 14], 38: [1, 15], 39: [1, 16],
+  40: [1, 17], 41: [1, 18], 42: [1, 19], 43: [1, 20], 44: [1, 21],
+  45: [2, 0], 46: [2, 33], 47: [2, 1], 48: [2, 2], /* 49 absent */ 50: [2, 3], 51: [2, 4],
+  52: [1, 12], 53: [1, 13], 54: [2, 5], 55: [2, 6], 56: [2, 7], 57: [2, 8], 58: [2, 9],
+  59: [2, 10], 60: [2, 29], 61: [2, 11], 62: [2, 12], 63: [2, 13], 64: [2, 14], 65: [2, 15],
+  66: [2, 16], 67: [2, 17], 68: [2, 18], 69: [2, 19], 70: [2, 20], 71: [2, 21], 72: [2, 22],
+  73: [2, 23], 74: [2, 24], 75: [2, 25], 76: [2, 26], 77: [2, 27], 78: [2, 28], 79: [2, 30],
+  80: [2, 31], 81: [2, 32],
+  82: [4, 8], 83: [4, 7], 84: [4, 0], 85: [4, 5], 86: [4, 6], 87: [4, 1], 88: [4, 2],
+  89: [4, 3], 90: [4, 4], 91: [1, 11],
+  127: [4, 13], // drum kit of bank 0x00 (N64 program 0x7F)
+};
+
+/**
+ * Build the program router for a source N64 bank: raw N64 program -> { bank, program },
+ * where `bank` is the 3DS BankSelect INDEX to select and `program` the instrument within
+ * it. This is the single place bank-switching is decided:
+ *  - Chiptune waves (0x80..0x87) -> the chiptune bank (index 1 for melodic banks, index 3
+ *    for the SFX bank 0x00), instrument from the fixed chiptune table.
+ *  - For the SFX bank 0x00, every other program uses the SFX split table (indices 0..3);
+ *    an unlisted program stays on the main bank unchanged.
+ *  - For any other bank, programs stay on the main bank (index 0) and route through
+ *    `remap` (the per-bank melodic compaction / the caller's remapProgram seam).
+ * @param {number|undefined} bankId source N64 bank id (opts.bank), if any
+ * @param {(program:number)=>number} remap main-bank program remap
+ * @returns {(program:number)=>{bank:number, program:number}}
+ */
+export function makeProgramRouter(bankId, remap) {
+  const sfx = bankId === SFX_BANK;
+  const chiptuneIndex = sfx ? SFX_CHIPTUNE_INDEX : CHIPTUNE_BANK;
+  return (program) => {
+    const chip = chiptuneInstrument(program);
+    if (chip != null) return { bank: chiptuneIndex, program: chip };
+    if (sfx) {
+      const m = SFX_BANK0[program];
+      if (m) return { bank: SFX_BANK_INDEX[m[0]], program: m[1] };
+      return { bank: DEFAULT_BANK, program }; // unlisted SFX program: leave as-is
+    }
+    return { bank: DEFAULT_BANK, program: remap(program) };
+  };
+}
+
 /** @type {Object<number, Bank>} */
 export const BANKS = {
   0x03: { name: 'Hyrule Field', drum: true, slots: {

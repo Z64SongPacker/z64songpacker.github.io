@@ -7,6 +7,7 @@ export { write as writeSseq } from './sseq/write.js';
 // 3DS/Wii-U BCSEQ (CSEQ container) — the primary target format.
 export { read as readBcseq } from './bcseq/read.js';
 export { write as writeBcseq } from './bcseq/write.js';
+export { trackFlags, formatTrackFlags } from './bcseq/tracks.js';
 
 // N64 Audioseq -> IR -> BCSEQ pipeline (the end-to-end goal).
 export { seqToBcseq } from './pipeline.js';

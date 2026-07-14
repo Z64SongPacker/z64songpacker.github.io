@@ -19,7 +19,9 @@ import { makeProgramRemap } from './n64/banks.js';
  * @param {Uint8Array|ArrayBuffer} input raw N64 sequence bytes
  * @param {object} [opts]
  * @param {number} [opts.bank] OoT bank id (e.g. 0x03) — selects the built-in
- *   program-compaction remap AND the drum kit (the bank's 0x7F slot). Ignored for
+ *   program-compaction remap AND the drum kit (the bank's 0x7F slot). Bank 0x00 is the
+ *   Sound Effects bank, split across four 3DS banks: its programs are routed with
+ *   BankSelect per docs/sfx-banks.md (and its chiptunes go to bank index 3). Ignored for
  *   programs if `remapProgram` is given, for drums if `drumKit`/`remapDrumKey` is given.
  * @param {(program:number)=>number} [opts.remapProgram] bank/instrument remap seam
  *   (overrides `opts.bank`).

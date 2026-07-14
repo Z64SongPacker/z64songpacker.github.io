@@ -1689,6 +1689,22 @@
         });
         $("#apSongPreview").on("timeupdate", updatePreviewControls);
 
+        function updateVolumeIcon(){
+          var muted = audio.muted || audio.volume == 0;
+          $(".btnAudioMute").toggleClass("fa-volume-high", !muted).toggleClass("fa-volume-xmark", muted);
+        }
+        $(".rgAudioVolume").on("input", function(){
+          audio.volume = $(this).val() / 100;
+          updateVolumeIcon();
+        });
+        $(".btnAudioMute").on("click", function(){
+          audio.muted = !audio.muted;
+          updateVolumeIcon();
+        });
+        $(".btnAudioClose").on("click", function(){
+          $(".container").removeClass("with-preview-controls");
+          stopPreview();
+        });
         
       });
 
@@ -2106,7 +2122,13 @@
               </div>
 
               <div class="col-4">
-                
+                <div class="row align-items-center">
+                  <i class="btnAudioMute icon-button col-auto fa-solid fa-lg fa-volume-high ms-auto"></i>
+                  <div class="col-auto ps-0">
+                    <input type="range" class="rgAudioVolume w-100" value="100">
+                  </div>
+                  <i class="btnAudioClose icon-button col-auto fa-solid fa-lg fa-times me-3"></i>
+                </div>
               </div>
             </div>
           </div>
@@ -2119,7 +2141,7 @@
 
     <!-- SONG PREVIEW -->
 
-    <div class="w-100 bg-primary-subtle d-none">
+    <div class="w-100 bg-primary-subtle">
       <div id="panelAudioPreview">
         <audio controls id="apSongPreview">
           <source src="https://raw.githubusercontent.com/CristobalPenaloza/OoT-Custom-Sequences/Custom-Music-2.0/previews/Monster Hunter Generations Ultimate/Silver Winged Scarlet Star - Valstrax.mp3" type="audio/mpeg" id="asrcSongPreview">

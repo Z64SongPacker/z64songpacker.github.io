@@ -129,7 +129,12 @@ export function toIr(model, opts = {}) {
   const push = (ev) => seq.push(ev);
 
   // --- Track 0 header (conductor). ---
-  if (groups.length > 1) {
+  // Every real 3DS .bcseq begins with AllocateTrack — including the mask's bit 0 (track 0).
+  // Emit it even for a single-channel seq (mask 0b1, no OpenTrack): a lone track 0 with no
+  // AllocateTrack is the one structural way our output diverged from every real file, and
+  // such single-track fanfares played at the wrong tempo on hardware. Multi-track output is
+  // unchanged ((1<<n)-1 already covers bit 0 plus every OpenTrack'd track).
+  if (groups.length >= 1) {
     push(cmd('AllocateTrack', { mask: (1 << groups.length) - 1 }));
     for (let i = 1; i < groups.length; i++) {
       push(cmd('OpenTrack', { track: i, offset: trackLabel(i) }));

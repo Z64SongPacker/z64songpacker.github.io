@@ -19,6 +19,7 @@
     <script src="https://cdn.jsdelivr.net/npm/js-cookie@3.0.5/dist/js.cookie.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/js-md5@0.8.3/src/md5.min.js"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
 
     <!-- Packer files -->
     <link rel="stylesheet" type="text/css" href="css/z64_song_packer.css" />
@@ -104,6 +105,9 @@
       var showDMCACriticalTracks = false;
       var isListView = true;
       var defaultAvatarUrl = "https://github.githubassets.com/images/gravatars/gravatar-user-420.png?size=32";
+      var ytPlayer;
+      var ytPlayerTimeUpdateInterval;
+      var isYouTubePreview = true;
 
       var offsetDate = new Date();
       offsetDate.setDate(offsetDate.getDate() - 5);
@@ -1136,8 +1140,10 @@
 
             if (match && match[2].length == 11) {
               var videoId = match[2];
-              $("#ytpSongPreview").attr("src", "https://www.youtube.com/embed/" + videoId + "?autoplay=1");
-              $("#panelYouTubePreview").removeClass("d-none");
+              ytPlayer.loadVideoById(videoId);
+
+              //$("#ytpSongPreview").attr("src", "https://www.youtube.com/embed/" + videoId + "?autoplay=1");
+              //$("#panelYouTubePreview").removeClass("d-none");
               
             } else {
               alert("An error ocurred while processing a YouTube link.\n\nThe link could be corrupted or invalid.");
@@ -1163,7 +1169,7 @@
         modalSongPreview.show();
       }
       function stopPreview(){
-        $("#ytpSongPreview").attr("src", "");
+        ytPlayer.stopVideo();
         $("#apSongPreview")[0].pause();
       }
 
@@ -1669,54 +1675,106 @@
         }).trigger("change");
 
 
+
+
         // ----- AUDIO CONTROLS -----
-        var audio = $("#apSongPreview")[0];
-        $(".btnAudioPlay").on("click", function(){
-          if(audio.paused) audio.play();
-          else audio.pause();
-          updatePreviewControls();
-        });
-        $(".btnAudioForward").on("click", function(){
 
-        });
-        $(".btnAudioRewind").on("click", function(){
-
-        });
-        $(".rgAudioProgress").on("input", function() {
-          var seekTime = ($(this).val() / 100) * audio.duration;
-          audio.currentTime = seekTime;
-          updatePreviewControls();
+        // This one's invisible so we don't care about their options...
+        ytPlayer = new YT.Player('ytpPreviewContainer', {
+          //height: '390',
+          //width: '640',
+          // Create a loop to imitate audio player's "timeupdate" event
+          // Somehow the YT player doesn't have it >:c
+          events: {
+            "onStateChange": function(event){
+              clearInterval(ytPlayerTimeUpdateInterval);
+              if (event.data === YT.PlayerState.PLAYING) {
+                ytPlayerTimeUpdateInterval = setInterval(updatePreviewControls, 250);
+              }
+              updatePreviewControls();
+            }
+          }
         });
         $("#apSongPreview").on("timeupdate", updatePreviewControls);
 
-        function updateVolumeIcon(){
-          var muted = audio.muted || audio.volume == 0;
-          $(".btnAudioMute").toggleClass("fa-volume-high", !muted).toggleClass("fa-volume-xmark", muted);
-        }
+        var audio = $("#apSongPreview")[0];
+        $(".btnAudioPlay").on("click", function(){
+          if(isYouTubePreview){
+            if(ytPlayer.getPlayerState() != YT.PlayerState.PLAYING) ytPlayer.playVideo();
+            else ytPlayer.pauseVideo();
+
+          } else{
+            if(audio.paused) audio.play();
+            else audio.pause();
+          }
+          updatePreviewControls();
+        });
+
+        $(".btnAudioForward").on("click", function(){
+
+        });
+
+        $(".btnAudioRewind").on("click", function(){
+
+        });
+
+        $(".rgAudioProgress").on("input", function() {
+          var currentProgress = $(this).val() / 100;
+          if(isYouTubePreview){
+            var seekTime = currentProgress * ytPlayer.getDuration();
+            ytPlayer.seekTo(seekTime, true);
+
+          } else{
+            var seekTime = currentProgress * audio.duration;
+            audio.currentTime = seekTime;
+          }
+          updatePreviewControls();
+        });
+
         $(".rgAudioVolume").on("input", function(){
-          audio.volume = $(this).val() / 100;
-          updateVolumeIcon();
+          var volume = $(this).val();
+          if(isYouTubePreview) ytPlayer.setVolume(volume)
+          else audio.volume = volume / 100;
+          updatePreviewControls();
         });
+
         $(".btnAudioMute").on("click", function(){
-          audio.muted = !audio.muted;
-          updateVolumeIcon();
+          if(isYouTubePreview) {
+            if(ytPlayer.isMuted()) ytPlayer.unMute();
+            else ytPlayer.mute();
+
+          } else audio.muted = !audio.muted;
+          updatePreviewControls();
         });
+
         $(".btnAudioClose").on("click", function(){
           $(".container").removeClass("with-preview-controls");
           stopPreview();
         });
-        
       });
 
       function updatePreviewControls(){
         var audio = $("#apSongPreview")[0];
+        var isPaused = audio.paused;
+        var isMuted = audio.muted || audio.volume == 0;
+        var duration = audio.duration;
+        var currentTime = audio.currentTime;
 
-        if(audio.paused) $(".btnAudioPlay").removeClass("fa-circle-pause").addClass("fa-circle-play");
-        else $(".btnAudioPlay").removeClass("fa-circle-play").addClass("fa-circle-pause");
+        if(isYouTubePreview){
+          isPaused = ytPlayer.getPlayerState() != YT.PlayerState.PLAYING;
+          isMuted = ytPlayer.isMuted() || ytPlayer.getVolume() == 0;
+          duration = ytPlayer.getDuration();
+          currentTime = ytPlayer.getCurrentTime();
+        }
 
-        if (audio.duration) {
+        console.log(`isPaused = ${isPaused} | isMuted = ${isMuted} | duration = ${duration} | currentTime = ${currentTime}`);
+
+        $(".btnAudioPlay").toggleClass("fa-circle-pause", !isPaused).toggleClass("fa-circle-play", isPaused);
+        $(".btnAudioMute").toggleClass("fa-volume-high", !isMuted).toggleClass("fa-volume-xmark", isMuted);
+
+        if (duration) {
           // Update progress bar percentage
-          const percentage = (audio.currentTime / audio.duration) * 100;
+          const percentage = (currentTime / duration) * 100;
           $(".rgAudioProgress").val(percentage);
 
           // Format current time display
@@ -1727,8 +1785,8 @@
             $(id).text(`${mins}:${secs}`);
           }
 
-          var currentTime = Math.floor(audio.currentTime);
-          var totalTime = Math.floor(audio.duration);
+          var currentTime = Math.floor(currentTime);
+          var totalTime = Math.floor(duration);
           setAudioLength(".lbAudioLengthCurrent", currentTime);
           setAudioLength(".lbAudioLengthRemaining", totalTime - currentTime);
         }
@@ -2146,11 +2204,9 @@
         <audio controls id="apSongPreview">
           <source src="https://raw.githubusercontent.com/CristobalPenaloza/OoT-Custom-Sequences/Custom-Music-2.0/previews/Monster Hunter Generations Ultimate/Silver Winged Scarlet Star - Valstrax.mp3" type="audio/mpeg" id="asrcSongPreview">
         </audio>
+        <div id="ytpPreviewContainer"></div>
       </div>
       
-      <div id="panelYouTubePreview" class="responsive-iframe">
-        <iframe id="ytpSongPreview" type="text/html" width="100%" height="auto" src="" frameborder="0"></iframe>
-      </div>
     </div>
 
     <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3">

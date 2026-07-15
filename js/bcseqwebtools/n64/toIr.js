@@ -14,11 +14,22 @@
 //     single mergeable timeline (necessary to combine overlapping layers).
 //   - Track 0 doubles as conductor: sequence-level setup (AllocateTrack + an OpenTrack
 //     per other track, Tempo, MainVolume) precedes its own channel's content.
+//   - Bank switching is decided by a single program router (src/n64/banks.js,
+//     makeProgramRouter): a raw N64 program -> { bank: cmeta bank INDEX (0..3), program }.
+//     Chiptune waves (N64 0x80..0x87, present in every bank) live in a separate 3DS bank,
+//     reached via BankSelect (index 1 for melodic banks, index 3 for the SFX bank 0x00),
+//     instrument from the fixed chiptune table. The N64 SFX bank 0x00 is split across four
+//     3DS banks, so its programs route to indices 0..3 per the doc table. Every other bank
+//     keeps its programs on its main bank (index 0) via remapProgram. A track only emits a
+//     BankSelect when its needed index changes (none if it never leaves its main bank).
 //   - Channel control maps: instrument -> ProgramChange, vol -> Volume, pan -> Pan,
-//     pitch bend (bend/bendfine) -> PitchBend (+ a BendRange); transposition
-//     (seq + channel + layer) is baked into note keys. Instrument, volume and bend all
-//     ride the channel timeline, so mid-stream switches/ramps/sweeps carry over (not
-//     just the first/last value).
+//     pitch bend (bend/bendfine) -> PitchBend (+ a BendRange), vibrato (vibdepth/vibfreq/
+//     vibdelay/vibreset) -> the 3DS Mod* LFO (ModType pitch + ModDepth/ModSpeed/ModDelay);
+//     transposition (seq + channel + layer) is baked into note keys. Instrument, volume,
+//     bend, pan and vibrato all ride the channel timeline, so mid-stream switches / ramps /
+//     sweeps carry over (not just the first/last value) — e.g. a continuous pan sweep.
+//     Vibrato has NO byte-exact oracle (real .bcseq files use no Mod*) and its extent also
+//     depends on the soundfont, so its value mapping (VIB_* constants) is approximate.
 //   - A channel that NEVER assigns an instrument (no instr/font/fontinstr on the
 //     channel and no instr on a layer) is MUTED — dropped entirely, matching N64 (which
 //     leaves it silent) instead of letting 3DS fall back to a default program.
@@ -32,12 +43,16 @@
 //   - opts.fixLoops(sequence) -> sequence : optional post-pass over the built IR.
 //
 // Panning: N64 defaults an unset channel pan to CENTER (64); 3DS defaults to hard LEFT.
-// Every track therefore emits an explicit Pan (its value, or 64 when unset).
+// Every track therefore emits an explicit Pan (the value at tick 0, or 64 when unset);
+// any later pan changes ride the timeline so pan sweeps are reproduced.
 //
 // Looping is intrinsic, taken from the .seq (NOT a user option): if the seq section
 // ends in a backward `jump`, each track loops with a `Jump` back to a label at the loop
 // point (the intro before it plays once); all tracks are padded to the master period so
-// they stay in sync. A seq that ends with `end` plays once. (See resolveSeqTimeline.)
+// they stay in sync. A seq that ends with `end` plays once — and there too every track is
+// padded to the sequence's total duration (the seq track's `end` tick), because on 3DS the
+// whole sequence stops when the SHORTEST track hits Fin; without the pad a short track cut
+// the longer ones off early (fanfares). (See resolveSeqTimeline / emitTrack.)
 //
 // Timebase: N64 delays are tatums (48/beat). If opts.bcseqTimebase differs from
 // opts.n64Timebase (both default 48), every delay/duration is scaled and a Timebase
@@ -46,7 +61,7 @@
 import { Sequence } from '../ir/events.js';
 import { orderedCmds } from './reader.js';
 import { makeDrumKeyRemap, drumKitForBank } from './drums.js';
-import { N64_DRUM_PROGRAM } from './banks.js';
+import { N64_DRUM_PROGRAM, DEFAULT_BANK, makeProgramRouter } from './banks.js';
 
 const MIDI_A0 = 21; // N64 pitch index 0 == PITCH_A0 == MIDI note 21.
 const MAX_TRACKS = 16; // BCSEQ hard cap (u16 track mask, track 0 implicit).
@@ -57,6 +72,15 @@ const STEP_BUDGET = 200000; // guard against unbounded layer self-loops.
 // track's BendRange is set to the range in use.
 const BEND_RANGE_OCTAVE = 12;
 const BEND_RANGE_SEMITONE = 1;
+
+// Vibrato -> 3DS Mod* LFO. There is NO byte-exact oracle for this (none of the real
+// OoT3D .bcseq files use Mod* at all), and the N64 vibrato extent also depends on the
+// instrument's soundfont, so these are deliberately conservative, easily-tuned
+// approximations — calibrate by ear in game if the wobble is too weak/strong/fast.
+const MOD_TYPE_PITCH = 0;   // 3DS ModType 0 = modulate pitch (vibrato)
+const VIB_DEPTH_SCALE = 4;  // N64 vibdepth (u8, typically ~10-20) -> 3DS ModDepth (u8)
+const VIB_FREQ_SCALE = 1;   // N64 vibfreq -> 3DS ModSpeed (best-guess 1:1)
+const VIB_DEFAULT_SPEED = 16; // 3DS ModSpeed when a channel sets vibdepth but no vibfreq
 
 /**
  * @param {ReturnType<import('./reader.js').read>} model raw N64 model
@@ -72,6 +96,9 @@ const BEND_RANGE_SEMITONE = 1;
  */
 export function toIr(model, opts = {}) {
   const remapProgram = opts.remapProgram || ((p) => p);
+  // Program router: raw N64 program -> { bank: BankSelect index, program }. Folds chiptune
+  // routing and the SFX bank-0x00 split in on top of the main-bank remapProgram.
+  const routeProgram = makeProgramRouter(opts.bank, remapProgram);
   // Drum-channel note-key remap: explicit hook wins, else the kit (named directly or
   // taken from the bank's 0x7F slot), else no-op. Applied only to drum channels 0x7F.
   const drumKit = opts.drumKit || (opts.bank != null ? drumKitForBank(opts.bank) : null);
@@ -102,7 +129,12 @@ export function toIr(model, opts = {}) {
   const push = (ev) => seq.push(ev);
 
   // --- Track 0 header (conductor). ---
-  if (groups.length > 1) {
+  // Every real 3DS .bcseq begins with AllocateTrack — including the mask's bit 0 (track 0).
+  // Emit it even for a single-channel seq (mask 0b1, no OpenTrack): a lone track 0 with no
+  // AllocateTrack is the one structural way our output diverged from every real file, and
+  // such single-track fanfares played at the wrong tempo on hardware. Multi-track output is
+  // unchanged ((1<<n)-1 already covers bit 0 plus every OpenTrack'd track).
+  if (groups.length >= 1) {
     push(cmd('AllocateTrack', { mask: (1 << groups.length) - 1 }));
     for (let i = 1; i < groups.length; i++) {
       push(cmd('OpenTrack', { track: i, offset: trackLabel(i) }));
@@ -117,7 +149,7 @@ export function toIr(model, opts = {}) {
   for (let i = 0; i < groups.length; i++) {
     if (i > 0) push({ type: 'Label', name: trackLabel(i) });
     const loopLabel = loop ? 'loop' + i : null;
-    const looped = emitTrack(push, groups[i], seqTranspose, remapProgram, remapDrumKey, scaleTicks, i === 0 ? seqTempos : null, loop, loopLabel);
+    const looped = emitTrack(push, groups[i], seqTranspose, routeProgram, remapDrumKey, scaleTicks, i === 0 ? seqTempos : null, loop, loopLabel, seqTl.loopLen);
     if (looped) push(cmd('Jump', { offset: loopLabel }));
     push(cmd('Fin', {}));
   }
@@ -166,13 +198,18 @@ function groupHasProgram(group) {
  * Emit one track: a channel-control prefix followed by one merged, timeline-ordered
  * stream of the channel's notes, its volume changes, and (for track 0) the sequence's
  * tempo changes — all across every load of this channel number.
+ * @param {(program:number)=>{bank:number, program:number}} routeProgram program router
+ *   (raw N64 program -> BankSelect index + instrument; see makeProgramRouter)
  * @param {((key:number)=>number)|null} remapDrumKey drum-note key remap, or null
  * @param {number[]} tempos conductor tempo events `{tick,value}` (track 0 only; else null)
  * @param {{start:number,len:number}|null} loop loop-start tick + master period, or null
  * @param {string|null} loopLabel name for this track's loop label (when looping)
+ * @param {number} masterEnd the sequence's total duration in source ticks (the seq
+ *   track's clock at `end`); a non-looping track is padded to it so it does not `Fin`
+ *   before the others and cut the sequence off early (see the padding at the tail)
  * @returns {boolean} whether this track looped (a loop label + Jump are warranted)
  */
-function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleTicks, tempos, loop, loopLabel) {
+function emitTrack(push, group, seqTranspose, routeProgram, remapDrumKey, scaleTicks, tempos, loop, loopLabel, masterEnd) {
   const control = collectChannelControl(group.loads[0].region);
   // Drum channels (N64 program 0x7F) index a reordered 3DS drum kit. When a kit is
   // active, remap the RAW note key (percussion keys index a sample table, so transpose
@@ -192,6 +229,8 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
   const events = []; // {tick, order, ev?} | {tick, order, note:{key,vel,dur}}
   const programEntries = []; // {tick, value} raw N64 instrument (instr) changes
   const bendEntries = [];    // {tick, value, range} raw N64 pitch bends
+  const panEntries = [];     // {tick, value} raw N64 channel pans
+  const vibEntries = [];     // {tick, kind, value} raw N64 vibrato control
   let segBase = 0;
   for (const load of group.loads) {
     const base = seqTranspose + (collectChannelControl(load.region).transpose || 0);
@@ -201,6 +240,8 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
     }
     for (const p of chTl.programs) programEntries.push({ tick: segBase + p.tick, value: p.value });
     for (const b of chTl.bends) bendEntries.push({ tick: segBase + b.tick, value: b.value, range: b.range });
+    for (const p of chTl.pans) panEntries.push({ tick: segBase + p.tick, value: p.value });
+    for (const v of chTl.vibs) vibEntries.push({ tick: segBase + v.tick, kind: v.kind, value: v.value });
     for (const layer of load.layers) {
       const startOff = chTl.layerStart.has(layer.start) ? chTl.layerStart.get(layer.start) : 0;
       const tl = resolveLayerTimeline(layer.region, base, converting);
@@ -213,10 +254,12 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
   // Instrument: the earliest instr goes in the prefix (before any note); later switches
   // ride the timeline so mid-stream instrument changes carry over. Fall back to the
   // linearly-collected program if the timeline walk found none (rare control-flow shape).
+  // The RAW N64 program is carried on the event and resolved at emit time (via emitProgram
+  // below), so a chiptune wave can inject its BankSelect in stream order.
   programEntries.sort((a, b) => a.tick - b.tick);
   const firstProgram = programEntries.length ? programEntries[0].value : control.program;
   for (let k = 1; k < programEntries.length; k++) {
-    events.push({ tick: programEntries[k].tick, order: 0, ev: cmd('ProgramChange', { value: remapProgram(programEntries[k].value) & 0x7fffffff }) });
+    events.push({ tick: programEntries[k].tick, order: 0, program: programEntries[k].value });
   }
 
   // Pitch bend: `bend` spans +/-1 octave, `bendfine` +/-1 semitone. Set the track's
@@ -227,12 +270,52 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
     events.push({ tick: b.tick, order: 0, ev: cmd('PitchBend', { value: scaleBend(b.value, b.range, trackBendRange) }) });
   }
 
-  // --- Prefix: notes stack (NoteWait 0), the initial instrument, an explicit Pan
-  // (N64 unset pan == CENTER 64; 3DS would otherwise play hard LEFT), and BendRange. ---
+  // Pan: N64 pan (u8 0..127) maps 1:1 to 3DS Pan. Pan RIDES the timeline (like volume)
+  // so continuous pan sweeps survive — e.g. a stereo-panned bell that sweeps left<->right.
+  // The value in effect at tick 0 goes in the prefix (N64 unset pan == CENTER 64; 3DS would
+  // otherwise play hard LEFT); the rest ride the timeline. A single static pan at tick 0 is
+  // exactly the old prefix-only behaviour (byte-for-byte unchanged).
+  panEntries.sort((a, b) => a.tick - b.tick);
+  let prefixPan = 64;
+  let panStart = 0;
+  if (panEntries.length && panEntries[0].tick === 0) { prefixPan = panEntries[0].value; panStart = 1; }
+  for (let k = panStart; k < panEntries.length; k++) {
+    events.push({ tick: panEntries[k].tick, order: 0, ev: cmd('Pan', { value: panEntries[k].value & 0x7f }) });
+  }
+
+  // Vibrato: map each N64 vibrato control to its 3DS Mod* counterpart on the timeline
+  // (see the VIB_* constants — approximate, no oracle). A channel that sets a depth but
+  // never a rate still needs a nonzero ModSpeed to actually wobble, so supply a default.
+  const hasVibrato = vibEntries.length > 0;
+  const hasVibFreq = vibEntries.some((v) => v.kind === 'freq');
+  for (const v of vibEntries) {
+    if (v.kind === 'depth') events.push({ tick: v.tick, order: 0, ev: cmd('ModDepth', { value: clamp7(v.value * VIB_DEPTH_SCALE) }) });
+    else if (v.kind === 'freq') events.push({ tick: v.tick, order: 0, ev: cmd('ModSpeed', { value: clamp7(v.value * VIB_FREQ_SCALE) }) });
+    else if (v.kind === 'delay') events.push({ tick: v.tick, order: 0, ev: cmd('ModDelay', { value: v.value }) });
+    else if (v.kind === 'reset') events.push({ tick: v.tick, order: 0, ev: cmd('ModDepth', { value: 0 }) });
+  }
+
+  // Emit a ProgramChange for a RAW N64 program, prefixing a BankSelect whenever the bank
+  // index it needs (from the router) differs from the one currently selected. Tracks start
+  // on their main bank (index 0) and never BankSelect it explicitly, so a track that never
+  // leaves the main bank emits no BankSelect at all (byte-for-byte unchanged from before).
+  let currentBank = DEFAULT_BANK;
+  const emitProgram = (rawProgram) => {
+    const { bank, program } = routeProgram(rawProgram);
+    if (bank !== currentBank) { push(cmd('BankSelect', { value: bank })); currentBank = bank; }
+    push(cmd('ProgramChange', { value: program & 0x7fffffff }));
+  };
+
+  // --- Prefix: notes stack (NoteWait 0), the initial instrument, an explicit Pan, the
+  // BendRange, and (once) the vibrato mode + a default rate when the channel gives none. ---
   push(cmd('NoteWait', { value: 0 }));
-  if (firstProgram != null) push(cmd('ProgramChange', { value: remapProgram(firstProgram) & 0x7fffffff }));
-  push(cmd('Pan', { value: control.pan != null ? control.pan : 64 }));
+  if (firstProgram != null) emitProgram(firstProgram);
+  push(cmd('Pan', { value: prefixPan }));
   if (trackBendRange) push(cmd('BendRange', { value: trackBendRange }));
+  if (hasVibrato) {
+    push(cmd('ModType', { value: MOD_TYPE_PITCH }));
+    if (!hasVibFreq) push(cmd('ModSpeed', { value: VIB_DEFAULT_SPEED }));
+  }
 
   // Loop only a track that actually has notes (a note-less conductor track just Fins).
   const looped = loop != null && events.some((e) => e.note);
@@ -250,6 +333,7 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
   for (const e of events) {
     if (e.tick > clock) { push(cmd('Wait', { value: scaleTicks(e.tick - clock) })); clock = e.tick; }
     if (e.loopMark) { push({ type: 'Label', name: loopLabel }); continue; }
+    if (e.program !== undefined) { emitProgram(e.program); continue; }
     if (!e.note) { push(e.ev); continue; }
     const key = mapKey(e.note.key);
     // Note duration is floored at 1 tick. A source note with delay 0 (immediately
@@ -259,10 +343,19 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
     if (key != null) push({ type: 'Note', key: clampKey(key), velocity: e.note.vel & 0x7f, duration: Math.max(1, scaleTicks(e.note.dur)) });
   }
 
-  // When looping, advance the clock to the master loop length so this track's Jump loops
-  // at the same period as every other track (its notes may end earlier, e.g. a trailing
-  // rest before the seq's backward jump). No-op when not looping.
-  if (looped && loop.len > clock) push(cmd('Wait', { value: scaleTicks(loop.len - clock) }));
+  // Advance the clock to the master period so this track ends in sync with the others.
+  // - Looping: pad to the loop length before the Jump, so every track loops at the same
+  //   period (a track's notes may end earlier, e.g. a trailing rest before the backward jump).
+  // - Not looping: pad to the sequence's total duration (`masterEnd`). On 3DS the whole
+  //   sequence stops when the SHORTEST track hits Fin, so an un-padded short track would cut
+  //   the longer tracks' tails off early — the fanfare bug. N64 keeps every channel alive
+  //   until the seq track's `end`; padding to masterEnd reproduces that. Only extends, never
+  //   shortens (a track already longer than masterEnd keeps its length).
+  if (looped) {
+    if (loop.len > clock) push(cmd('Wait', { value: scaleTicks(loop.len - clock) }));
+  } else if (masterEnd > clock) {
+    push(cmd('Wait', { value: scaleTicks(masterEnd - clock) }));
+  }
   return looped;
 }
 
@@ -277,7 +370,8 @@ function emitTrack(push, group, seqTranspose, remapProgram, remapDrumKey, scaleT
  * @param {import('./reader.js').RegionModel} region
  * @returns {{endTick:number, layerStart:Map<number,number>,
  *   vols:{tick:number,value:number}[], programs:{tick:number,value:number}[],
- *   bends:{tick:number,value:number,range:number}[]}}
+ *   bends:{tick:number,value:number,range:number}[], pans:{tick:number,value:number}[],
+ *   vibs:{tick:number,kind:string,value:number}[]}}
  */
 function resolveChannelTimeline(region) {
   const cmds = region.cmds;
@@ -285,6 +379,8 @@ function resolveChannelTimeline(region) {
   const vols = [];
   const programs = [];
   const bends = [];
+  const pans = [];
+  const vibs = [];
   let pc = region.start;
   let clock = 0;
   const callStack = [];
@@ -299,9 +395,17 @@ function resolveChannelTimeline(region) {
       case 'delay': clock += c.args[0]; break;
       case 'cdelay': clock += c.packed; break; // low nibble packed into the opcode
       case 'vol': vols.push({ tick: clock, value: c.args[0] }); break;
+      case 'pan': pans.push({ tick: clock, value: c.args[0] }); break;
       case 'instr': programs.push({ tick: clock, value: c.args[0] }); break;
       case 'bend': bends.push({ tick: clock, value: c.args[0], range: BEND_RANGE_OCTAVE }); break;
       case 'bendfine': bends.push({ tick: clock, value: c.args[0], range: BEND_RANGE_SEMITONE }); break;
+      // Vibrato: an LFO on pitch. N64 sets its depth/rate/delay separately (and the
+      // instrument's soundfont may add more) -> 3DS Mod* family. See emitTrack for the
+      // (oracle-free, approximate) value mapping.
+      case 'vibdepth': vibs.push({ tick: clock, kind: 'depth', value: c.args[0] }); break;
+      case 'vibfreq': vibs.push({ tick: clock, kind: 'freq', value: c.args[0] }); break;
+      case 'vibdelay': vibs.push({ tick: clock, kind: 'delay', value: c.args[0] }); break;
+      case 'vibreset': vibs.push({ tick: clock, kind: 'reset', value: 0 }); break;
       case 'ldlayer': case 'rldlayer':
         if (c.target != null && !layerStart.has(c.target)) layerStart.set(c.target, clock);
         break;
@@ -321,7 +425,7 @@ function resolveChannelTimeline(region) {
     }
     pc = next;
   }
-  return { endTick: clock, layerStart, vols, programs, bends };
+  return { endTick: clock, layerStart, vols, programs, bends, pans, vibs };
 }
 
 /**
@@ -489,6 +593,7 @@ function firstArg(region, name) {
 function cmd(name, args) { return { type: 'Command', name, args }; }
 function trackLabel(i) { return 'trk' + i; }
 function clampKey(k) { return k < 0 ? 0 : k > 127 ? 127 : k; }
+function clamp7(v) { return v < 0 ? 0 : v > 127 ? 127 : v; }
 function clampS8(v) { return v < -128 ? -128 : v > 127 ? 127 : v; }
 
 /**

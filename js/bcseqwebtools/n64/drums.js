@@ -75,6 +75,16 @@ const KITS = {
     { lo: 38, hi: 62, kind: 'to', to: 34 },    // Snare -> the one surviving 3DS note 34
   ],
 
+  // Tambourine / Rain — the drum kit of N64 bank 0x00 (Sound Effects), program 0x7F.
+  // docs/drums.md "Tambourine / Rain (used in bank 0x00)": N64 21 -> 3DS 1 (Edge Slap),
+  // N64 22 -> 3DS 4 (Head Tap), N64 23-24 -> 3DS 2-3 (Rain, in order). Only these four
+  // N64 keys are documented; other keys have no surviving 3DS slot -> dropped.
+  tambourineRain: [
+    { lo: 21, hi: 21, kind: 'to', to: 1 },    // Edge Slap -> 3DS 1
+    { lo: 22, hi: 22, kind: 'to', to: 4 },    // Head Tap  -> 3DS 4
+    { lo: 23, hi: 24, kind: 'lin', dsLo: 2 }, // Rain      -> 3DS 2-3 (in order)
+  ],
+
   // No table in docs/drums.md yet -> pass everything through (keep notes as-is).
   luteTambourine: [],
   gongWindchimes: [],
@@ -86,6 +96,7 @@ export const DRUM_KITS = Object.keys(KITS);
 // Which drum kit a bank's 0x7F slot uses (from the gist's per-bank instrument lists).
 // Banks without a 0x7F drum kit are absent. Values are keys of KITS.
 export const BANK_DRUM_KITS = {
+  0x00: 'tambourineRain',
   0x03: 'orchestra', 0x05: 'tambourine', 0x07: 'tripHopping', 0x08: 'tambourine',
   0x09: 'orchestra', 0x0a: 'luteTambourine', 0x10: 'gongWindchimes', 0x12: 'orchestra',
   0x14: 'orchestra', 0x15: 'congaShaker', 0x16: 'congaShaker', 0x1d: 'gongWindchimes',

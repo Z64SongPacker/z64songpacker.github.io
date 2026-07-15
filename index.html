@@ -51,7 +51,7 @@
       import { OoTCategories } from "./js/ootcategories.js";
       import { SeqUtils } from "./js/sequtils.js";
       import { packOtr } from './js/otrwebtools/js/otrPacker.js';
-      import { readSseq, writeSseq, readBcseq, writeBcseq, seqToBcseq, BANKS } from './js/bcseqwebtools/index.js';
+      import { readSseq, writeSseq, readBcseq, writeBcseq, seqToBcseq, trackFlags, formatTrackFlags, BANKS } from './js/bcseqwebtools/index.js';
       import YAML from 'yaml';
 
       // TODO: ADD SUPPORT FOR MULTIPLE PREVIEW FILES!!!
@@ -1499,8 +1499,8 @@
                 // If this is mmrs and otr, build a metadata string for it
                 if((packFormat.startsWith("otr-") || packFormat == "bcseq") && extension == "mmrs"){
                   bank = parseInt(file.name.split(".")[0], 16);
-                  if(packFormat == "otr-soh") {
-                    var bank = SeqUtils.mmToOOTBank(bank);
+                  if(packFormat == "otr-soh" || packFormat == "bcseq") {
+                    bank = SeqUtils.mmToOOTBank(bank);
                     if(bank == -1) {
                       console.log(fileName + " UNCOMPATIBLE BANK - Skipping...");
                       continue selectionsLoop;
@@ -1512,15 +1512,20 @@
 
                 // If BCSEQ add NOW the file (since we need to transform the seq), and also create the cmeta file
                 if(packFormat == "bcseq"){
-                  var bankOffset = 4; // All banks in 3DS are offset by 4
+                  console.log("BANK: " + bank);
+                  var bankOffset = parseInt(bank) + 4; // All banks in 3DS are decimal integers, offset by 4
+                  var bankList = `${(bankOffset)}, 4`; // Apply offset and always include bank 4 (for chiptunes) 
+                  if(bank < 3) bankList = "0, 1, 2, 4"; // Bank 0 is splitted, so we need to include all of the sfx banks 
 
-                  console.log("bank: " + bank);
-                  console.log("final bank: " + (bank + bankOffset))
+                  console.log("BANKLIST: " + bankList);
 
                   var folder = song.type == "bgm" ? "!Background Music" : "!Melodies/!Fanfares";
                   var extraSafeName = finalSongName.replaceAll("꞉", "").replaceAll("∕", "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                  zip.file(`${folder}/${extraSafeName}.bcseq`, seqToBcseq(seq, { bank }));
-                  zip.file(`${folder}/${extraSafeName}.cmeta`, `banks    = ${(bank + bankOffset)}\nchFlags  = 0b1111111111111111\nvolume   = 100%\ncategory = ${(song.type == "bgm" ? "Background Music" : "Fanfares")}`);
+                  var bcseq = seqToBcseq(seq, { bank });
+                  var chFlags = trackFlags(bcseq);
+                  
+                  zip.file(`${folder}/${extraSafeName}.bcseq`, bcseq);
+                  zip.file(`${folder}/${extraSafeName}.cmeta`, `banks    = ${bankList}\nchFlags  = ${formatTrackFlags(chFlags)}\nvolume   = 100%\ncategory = ${(song.type == "bgm" ? "Background Music" : "Fanfares")}`);
                 
                 } else{
                   z64File.file(file.name, seq);

@@ -60,6 +60,7 @@ export class SeqUtils{
         0x08: 0x05, // Kakariko (Guitar)
         0x09: 0x06, // Fairy Fountain
         0x0D: 0x07, // Lon Lon Ranch
+        0x0E: 0x26, // Goron City
         0x11: 0x08, // Horse Race
         0x12: 0x09, // Warp Songs
         0x14: 0x0A, // Shooting Gallery
@@ -72,16 +73,16 @@ export class SeqUtils{
     };
 
     static ootToMMBank(bank){
-        var bankInt = parseInt(bank, 16);
-        return this.ootToMMBankMap[bankInt] ?? -1;
+        if(!Number.isInteger(bank)) throw new Error(`Bank ${bank} is not a number!`);
+        return this.ootToMMBankMap[bank] ?? -1;
     }
 
     static mmToOOTBank(bank){
-        var bankInt = parseInt(bank, 16);
+        if(!Number.isInteger(bank)) throw new Error(`Bank ${bank} is not a number!`);
         var mmToOOTBankMap = Object.fromEntries(
             Object.entries(this.ootToMMBankMap).map(([key, value]) => [value, key])
         );
-        return mmToOOTBankMap[bankInt] ?? -1;
+        return mmToOOTBankMap[bank] ?? -1;
     }
 
     static convertIfRomanNumeral(word){

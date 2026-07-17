@@ -178,3 +178,26 @@
 .btn-search:hover{
   border: var(--bs-border-width) solid var(--bs-border-color);
 }
+
+
+.icon-button{
+  color: var(--bs-nav-link-color);
+  opacity: .8;
+  cursor: pointer;
+  text-decoration: none;
+}
+.icon-button:hover{
+  opacity: 1;
+}
+
+.icon-button.selected{
+  color: var(--bs-primary-text-emphasis);
+}
+.icon-button.selected, .icon-button.important{
+  opacity: 1;
+}
+.icon-button.selected:hover, .icon-button.important:hover{
+  opacity: 0.8;
+}
+
+

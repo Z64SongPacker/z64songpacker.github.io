@@ -107,7 +107,9 @@
       var defaultAvatarUrl = "https://github.githubassets.com/images/gravatars/gravatar-user-420.png?size=32";
       var ytPlayer;
       var ytPlayerTimeUpdateInterval;
-      var isYouTubePreview = true;
+      var isYouTubePreview = false;
+      var previewSongId = -1;
+      var previewShuffleHistory = [];
 
       var offsetDate = new Date();
       offsetDate.setDate(offsetDate.getDate() - 5);
@@ -642,6 +644,19 @@
             }
           }
 
+          // Sort by series, then by game, then by song
+          // Since we use these indexes for playlist, they need to be in the proper order...
+          database.sort((a, b) => {
+            var seriesA = gamesDb.find(g => g.game == a.game)?.series ?? a.game;
+            var seriesB = gamesDb.find(g => g.game == b.game)?.series ?? b.game;
+
+            const seriesSort = seriesA.localeCompare(seriesB);
+            const gameSort = a.game.localeCompare(b.game);
+            const songSort = a.song.localeCompare(b.song);
+
+            return seriesSort || gameSort || songSort;
+          });
+          
           // We will use an index to map quickly. But when we want to export/import, we will use the uuid.
           database.forEach((item, i) => {
             if(typeof(item) == "string") return;
@@ -1090,7 +1105,10 @@
           });
           $(`#btnPreview${i}`).on("click", function(event){
             event.stopPropagation();
-            if(hasPreview) previewSong(s);
+            if(hasPreview){
+              previewShuffleHistory = []; // Also reset the history if we are going to a completely new song
+              previewSong(s);
+            }
           });
         });
 
@@ -1126,24 +1144,28 @@
             preview = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.previews}/${song.preview}`.replaceAll("//", "/");
           }
 
+          // Load some metadata...
           console.log("Playing preview... " + preview);
+          previewSongId = song.index;
           $(".lbAudioSongName").text(song.song);
           $(".lbAudioGameName").text(song.game);
+          updatePreviewSelection();
 
           // Stop the current song
           stopPreview();
 
+          // Check if we are youtub'ing right now
+          isYouTubePreview = preview.startsWith("https://www.youtube.com") || preview.startsWith("https://youtu.be");
+          $(".btnAudioViewOnYouTube").toggleClass("d-none", !isYouTubePreview).attr("href", isYouTubePreview ? preview : "#");
+
           // If it's a YouTube link, we load it as an embed
-          if(preview.startsWith("https://www.youtube.com") || preview.startsWith("https://youtu.be")){
+          if(isYouTubePreview){
             var regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
             var match = preview.match(regExp);
 
             if (match && match[2].length == 11) {
               var videoId = match[2];
               ytPlayer.loadVideoById(videoId);
-
-              //$("#ytpSongPreview").attr("src", "https://www.youtube.com/embed/" + videoId + "?autoplay=1");
-              //$("#panelYouTubePreview").removeClass("d-none");
               
             } else {
               alert("An error ocurred while processing a YouTube link.\n\nThe link could be corrupted or invalid.");
@@ -1163,10 +1185,6 @@
           $(".container").addClass("with-preview-controls");
           updatePreviewControls();
         });
-
-        // Show the modal
-        var modalSongPreview = new bootstrap.Modal('#modalSongPreview', {});
-        modalSongPreview.show();
       }
       function stopPreview(){
         ytPlayer.stopVideo();
@@ -1221,6 +1239,7 @@
         // Update the BGM, Fanfare and total count
         updatePanelsSelectedCount();
         updateTotalSelections();
+        updatePreviewSelection();
 
         // Save to storage if we have the option enabled
         if(autosaveSelections) saveSettingsToStorage();
@@ -1714,13 +1733,42 @@
           }
           updatePreviewControls();
         });
+        
+        $(".btnAudioNext").on("click", function(){
+          var isShuffle = $(".btnAudioShuffle").hasClass("selected");
+          var song = database.find(s => s.index == (previewSongId + 1));
+          if(isShuffle) {
+            // If we did go back in shuffle mode, go to the same songs we were in
+            var historyIndex = previewShuffleHistory.indexOf(previewSongId);
+            if(historyIndex >= 0 && historyIndex < (previewShuffleHistory.length - 1)) {
+              song = database.find(s => s.index == previewShuffleHistory[historyIndex + 1]);
 
-        $(".btnAudioForward").on("click", function(){
-
+            // If nothing in the history, go to a new song
+            } else{
+              var newRandomIndex = Math.floor(Math.random() * database.length);
+              if(previewShuffleHistory.length == 0) previewShuffleHistory.push(previewSongId); // Add the current song also, so we can get back to it...
+              previewShuffleHistory.push(newRandomIndex);
+              song = database.find(s => s.index == newRandomIndex);
+            }
+          }
+          if(song) previewSong(song);
         });
 
-        $(".btnAudioRewind").on("click", function(){
+        $(".btnAudioPrevious").on("click", function(){
+          var isShuffle = $(".btnAudioShuffle").hasClass("selected");
+          var song = database.find(s => s.index == (previewSongId - 1));
+          if(isShuffle){
+            // If we have a history, go there, but if not, don't do anything
+            var historyIndex = previewShuffleHistory.indexOf(previewSongId);
+            if(historyIndex < 1) song = null;
+            else song = database.find(s => s.index == previewShuffleHistory[historyIndex - 1]);
+          }
+          if(song) previewSong(song);
+        });
 
+        $(".btnAudioShuffle, .btnAudioRepeat").on("click", function(){
+          previewShuffleHistory = []; // Always clear the shuffle history, if not things get messy...
+          $(this).toggleClass("selected");
         });
 
         $(".rgAudioProgress").on("input", function() {
@@ -1735,12 +1783,12 @@
           }
           updatePreviewControls();
         });
-
-        $(".rgAudioVolume").on("input", function(){
-          var volume = $(this).val();
-          if(isYouTubePreview) ytPlayer.setVolume(volume)
-          else audio.volume = volume / 100;
-          updatePreviewControls();
+        
+        $(".btnAudioSelected").on("click", function(){
+          var isSelected = selections.includes(previewSongId);
+          if(isSelected) selections = selections.filter(sel => sel != previewSongId);
+          else selections.push(previewSongId);
+          updateSelections([previewSongId], !isSelected);
         });
 
         $(".btnAudioMute").on("click", function(){
@@ -1749,6 +1797,13 @@
             else ytPlayer.mute();
 
           } else audio.muted = !audio.muted;
+          updatePreviewControls();
+        });
+
+        $(".rgAudioVolume").on("input", function(){
+          var volume = $(this).val();
+          if(isYouTubePreview) ytPlayer.setVolume(volume)
+          else audio.volume = volume / 100;
           updatePreviewControls();
         });
 
@@ -1761,21 +1816,23 @@
       function updatePreviewControls(){
         var audio = $("#apSongPreview")[0];
         var isPaused = audio.paused;
-        var isMuted = audio.muted || audio.volume == 0;
+        var isMuted = audio.muted;
+        var isSilent = audio.muted || audio.volume == 0;
         var duration = audio.duration;
         var currentTime = audio.currentTime;
 
         if(isYouTubePreview){
           isPaused = ytPlayer.getPlayerState() != YT.PlayerState.PLAYING;
-          isMuted = ytPlayer.isMuted() || ytPlayer.getVolume() == 0;
+          isMuted = ytPlayer.isMuted();
+          isSilent = ytPlayer.isMuted() || ytPlayer.getVolume() == 0
           duration = ytPlayer.getDuration();
           currentTime = ytPlayer.getCurrentTime();
         }
 
-        console.log(`isPaused = ${isPaused} | isMuted = ${isMuted} | duration = ${duration} | currentTime = ${currentTime}`);
+        // console.log(`isPaused = ${isPaused} | isMuted = ${isMuted} | duration = ${duration} | currentTime = ${currentTime}`);
 
-        $(".btnAudioPlay").toggleClass("fa-circle-pause", !isPaused).toggleClass("fa-circle-play", isPaused);
-        $(".btnAudioMute").toggleClass("fa-volume-high", !isMuted).toggleClass("fa-volume-xmark", isMuted);
+        $(".btnAudioPlay").toggleClass("fa-circle-pause", !isPaused).toggleClass("fa-circle-play", isPaused).attr("title", isPaused ? "Play" : "Pause");
+        $(".btnAudioMute").toggleClass("fa-volume-high", !isSilent).toggleClass("fa-volume-xmark", isSilent).attr("title", isMuted ? "Unmute" : "Mute");
 
         if (duration) {
           // Update progress bar percentage
@@ -1795,6 +1852,11 @@
           setAudioLength(".lbAudioLengthCurrent", currentTime);
           setAudioLength(".lbAudioLengthRemaining", totalTime - currentTime);
         }
+      }
+
+      function updatePreviewSelection(){
+        var isSelected = selections.includes(previewSongId);
+        $(".btnAudioSelected").toggleClass("selected", isSelected).toggleClass("fa-solid", isSelected).toggleClass("fa-regular", !isSelected);
       }
     </script>
 
@@ -2160,7 +2222,7 @@
 
         <!-- MUSIC PLAYER -->
         <div id="panelSongPreviewBottom" class="preview-controls col-12">
-          <div class="card bg-body-tertiary">
+          <div class="card bg-body-tertiary rounded-bottom-0 border-bottom-0">
             <div class="row align-items-center">
               <div class="col-4">
                 <div class="row ms-3 lh-sm">
@@ -2171,9 +2233,11 @@
 
               <div class="col-4">
                 <div class="row align-items-center pt-2">
-                  <i class="btnAudioForward icon-button col-auto fa-solid fa-lg fa-backward-fast ms-auto"></i>
-                  <i class="btnAudioPlay icon-button col-auto fa-solid fa-2x fa-circle-play"></i>
-                  <i class="btnAudioRewind icon-button col-auto fa-solid fa-lg fa-forward-fast me-auto"></i>
+                  <i class="btnAudioShuffle icon-button col-auto fa-solid fa-shuffle ms-auto" title="Shuffle"></i>
+                  <i class="btnAudioPrevious icon-button col-auto fa-solid fa-lg fa-backward-step" title="Previous"></i>
+                  <i class="btnAudioPlay icon-button important col-auto fa-solid fa-2x fa-circle-play" title="Play/Pause"></i>
+                  <i class="btnAudioNext icon-button col-auto fa-solid fa-lg fa-forward-step" title="Next"></i>
+                  <i class="btnAudioRepeat icon-button col-auto fa-solid fa-repeat me-auto" title="Repeat"></i>
                 </div>
                 <div class="row align-items-center py-1 g-2">
                   <div class="lbAudioLengthCurrent col-auto mt-1">0:00</div>
@@ -2186,11 +2250,13 @@
 
               <div class="col-4">
                 <div class="row align-items-center">
-                  <i class="btnAudioMute icon-button col-auto fa-solid fa-lg fa-volume-high ms-auto"></i>
+                  <i class="btnAudioSelected icon-button col-auto fa-regular fa-lg fa-heart ms-auto" title="Mark as selected"></i>
+                  <a class="btnAudioViewOnYouTube icon-button col-auto fa-brands fa-lg fa-youtube" href="#" title="View on YouTube" target="_blank"></a>
+                  <i class="btnAudioMute icon-button col-auto fa-solid fa-lg fa-volume-high" title="Mute/Unmute"></i>
                   <div class="col-auto ps-0">
                     <input type="range" class="rgAudioVolume w-100" value="100">
                   </div>
-                  <i class="btnAudioClose icon-button col-auto fa-solid fa-lg fa-times me-3"></i>
+                  <i class="btnAudioClose icon-button col-auto fa-solid fa-lg fa-times me-3" title="Close"></i>
                 </div>
               </div>
             </div>
@@ -2202,18 +2268,17 @@
 
 
 
-    <!-- SONG PREVIEW -->
-
-    <div class="w-100 bg-primary-subtle">
+    <!-- ACTUAL AUDIO CONTROLS -->
+    <div class="w-100 bg-primary-subtle d-none">
       <div id="panelAudioPreview">
         <audio controls id="apSongPreview">
           <source src="https://raw.githubusercontent.com/CristobalPenaloza/OoT-Custom-Sequences/Custom-Music-2.0/previews/Monster Hunter Generations Ultimate/Silver Winged Scarlet Star - Valstrax.mp3" type="audio/mpeg" id="asrcSongPreview">
         </audio>
         <div id="ytpPreviewContainer"></div>
       </div>
-      
     </div>
 
+    <!-- TOAST -->
     <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3">
       <div id="toast" class="toast align-items-center bg-primary-subtle text-primary-emphasis"
         role="alert" aria-live="assertive" aria-atomic="true" style="width: 500px !important">

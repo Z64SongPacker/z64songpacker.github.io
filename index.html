@@ -1706,8 +1706,6 @@
 
         // This one's invisible so we don't care about their options...
         ytPlayer = new YT.Player('ytpPreviewContainer', {
-          //height: '390',
-          //width: '640',
           // Create a loop to imitate audio player's "timeupdate" event
           // Somehow the YT player doesn't have it >:c
           events: {
@@ -1715,12 +1713,23 @@
               clearInterval(ytPlayerTimeUpdateInterval);
               if (event.data === YT.PlayerState.PLAYING) {
                 ytPlayerTimeUpdateInterval = setInterval(updatePreviewControls, 250);
+
+              } else if (event.data === YT.PlayerState.ENDED) {
+                var isLooping = $(".btnAudioRepeat").hasClass("selected");
+                if(!isLooping) $(".btnAudioNext").trigger("click");
+                else ytPlayer.playVideo(); // Replay the video manually if we loopin', the other way to do it is too annoying >:c
               }
               updatePreviewControls();
             }
           }
         });
+
         $("#apSongPreview").on("timeupdate", updatePreviewControls);
+        $("#apSongPreview").on("ended", function(){
+          // If we not looping, then go to the next song!
+          var isLooping = $(".btnAudioRepeat").hasClass("selected");
+          if(!isLooping) $(".btnAudioNext").trigger("click");
+        });
 
         var audio = $("#apSongPreview")[0];
         $(".btnAudioPlay").on("click", function(){
@@ -1767,9 +1776,16 @@
           if(song) previewSong(song);
         });
 
-        $(".btnAudioShuffle, .btnAudioRepeat").on("click", function(){
-          previewShuffleHistory = []; // Always clear the shuffle history, if not things get messy...
+        $(".btnAudioShuffle").on("click", function(){
           $(this).toggleClass("selected");
+          previewShuffleHistory = []; // Always clear the shuffle history, if not things get messy...
+        });
+
+        $(".btnAudioRepeat").on("click", function(){
+          $(this).toggleClass("selected");
+          var isLooping = $(".btnAudioRepeat").hasClass("selected");
+          audio.loop = isLooping;
+          // TODO: ADD LOOPING TO YTPLAYER!!!
         });
 
         $(".rgAudioProgress").on("input", function() {

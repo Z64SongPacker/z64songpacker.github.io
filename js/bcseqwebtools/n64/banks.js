@@ -116,6 +116,41 @@ const SFX_BANK0 = {
   127: [4, 13], // drum kit of bank 0x00 (N64 program 0x7F)
 };
 
+// --- N64 banks 0x01 (Actor Sounds) and 0x02 (Nature Sounds) -> ONE 3DS bank each ------
+// Unlike the SFX bank 0x00 (whose SFX split across four 3DS banks), each of these maps its
+// NORMAL programs entirely onto a single 3DS bank — 0x01 -> game bank 3, 0x02 -> game bank
+// 42 — so no bank switching happens for those; only the instrument (program) number is
+// remapped, keeping them on bank index 0, exactly like the melodic banks. They route
+// through the ordinary instrument-remap seam (makeProgramRemap). Chiptune waves
+// (0x80..0x87) behave like they do in EVERY other bank: they route to the chiptune bank
+// (index 1) via makeProgramRouter's generic path (these aren't the SFX bank 0x00, so the
+// index-3 chiptune exception does not apply). The 3DS game bank id (3 / 42) is
+// documentation only — like the melodic banks, the .bcseq stream never encodes it.
+// Source: docs/sfx-banks.md "Bank 0x01"/"Bank 0x02" + "Chiptune Instruments".
+
+/** N64 bank ids that map onto a single 3DS bank (instrument remap only, no switching). */
+export const ACTOR_BANK = 0x01;
+export const NATURE_BANK = 0x02;
+
+// N64 bank-0x01 program (DECIMAL id from the doc) -> 3DS instrument (game bank 3, index 0).
+const ACTOR_BANK1 = {
+  0: 0, 1: 1, 2: 2, 3: 6, 4: 7, 5: 8, 6: 9, 7: 10, 8: 12, 9: 13, 10: 14, 11: 11,
+  12: 16, 13: 17, 14: 19, 15: 18, 16: 20, 17: 21, 18: 3, 19: 4, 20: 5, 21: 26, 22: 48,
+  23: 15, 24: 27, 25: 22, 26: 23, 27: 24, 28: 25, 29: 28, 30: 29, 31: 30, 32: 31, 33: 32,
+  34: 33, 35: 34, 36: 35, 37: 36, 38: 44, 39: 45, 40: 46, 41: 37, 42: 38, 43: 39, 44: 47,
+  45: 40, 46: 41, 47: 49, 48: 42, 49: 50, 50: 43,
+};
+
+// N64 bank-0x02 program (DECIMAL id from the doc) -> 3DS instrument (game bank 42, index 0).
+// Program 0 ("None") has no 3DS sound and is intentionally absent (passes through unchanged).
+const NATURE_BANK2 = {
+  1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 19, 11: 9, 12: 10, 13: 11,
+  14: 12, 15: 13, 16: 14, 17: 15, 18: 16, 19: 17, 20: 18,
+};
+
+/** Source N64 bank id -> its single-3DS-bank instrument remap table. */
+const SINGLE_BANK_REMAP = { [ACTOR_BANK]: ACTOR_BANK1, [NATURE_BANK]: NATURE_BANK2 };
+
 /**
  * Build the program router for a source N64 bank: raw N64 program -> { bank, program },
  * where `bank` is the 3DS BankSelect INDEX to select and `program` the instrument within
@@ -309,13 +344,19 @@ function occupiedSlots(bank) {
  * (empty slots removed) — normally ascending slot order, but `bank.order` overrides it
  * for banks whose 3DS layout reorders instruments (e.g. 0x21's Bell). The drum kit 0x7F
  * maps to the COUNT of occupied melodic slots (squashed right after the last melodic
- * instrument). Unknown banks and out-of-range programs (SFX 126, synth waves 128+) pass
- * through unchanged — those mappings are not yet confirmed (see PLAN.md Phase 7).
+ * instrument). The single-3DS-bank SFX banks 0x01/0x02 instead use their explicit remap
+ * tables (no compaction). Unknown banks and out-of-range programs (SFX 126, synth waves
+ * 128+) pass through unchanged — those mappings are not yet confirmed (see PLAN.md Phase 7).
  *
  * @param {number} bankId OoT bank id (e.g. 0x03 for Hyrule Field)
  * @returns {(program:number)=>number}
  */
 export function makeProgramRemap(bankId) {
+  // SFX banks 0x01/0x02 use a single-3DS-bank explicit instrument remap (no gap
+  // compaction, no bank switching) — an unlisted program passes through unchanged.
+  const single = SINGLE_BANK_REMAP[bankId];
+  if (single) return (p) => (single[p] != null ? single[p] : p);
+
   const bank = BANKS[bankId];
   if (!bank) return (p) => p; // unknown bank -> identity
   const occupied = occupiedSlots(bank);

@@ -131,8 +131,10 @@ export function toIr(model, opts = {}) {
   // --- Track 0 header (conductor). ---
   // Every real 3DS .bcseq begins with AllocateTrack — including the mask's bit 0 (track 0).
   // Emit it even for a single-channel seq (mask 0b1, no OpenTrack): a lone track 0 with no
-  // AllocateTrack is the one structural way our output diverged from every real file, and
-  // such single-track fanfares played at the wrong tempo on hardware. Multi-track output is
+  // AllocateTrack is the one structural way our output diverged from every real file. On
+  // hardware such single-track songs half-initialised track 0 — playing at the WRONG TEMPO
+  // and with the WRONG INSTRUMENT (both confirmed fixed by emitting this). The spec calls
+  // track 0 "implicit", but the 3DS engine still needs the allocation. Multi-track output is
   // unchanged ((1<<n)-1 already covers bit 0 plus every OpenTrack'd track).
   if (groups.length >= 1) {
     push(cmd('AllocateTrack', { mask: (1 << groups.length) - 1 }));

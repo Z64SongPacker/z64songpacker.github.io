@@ -1535,9 +1535,10 @@
                   var bankOffset = parseInt(bank) + 4; // All banks in 3DS are decimal integers, offset by 4
                   var bankList = `${(bankOffset)}, 4`; // Apply offset and always include bank 4 (for chiptunes) 
                   if(bank == 0) bankList = "0, 1, 2, 4"; // Bank 0 is splitted, so we need to include all of the sfx banks 
-                  else if (bank == 1 || bank == 2) bankList = "0, 4"; // TODO: ADD FULL COMPATIBILITY WITH BANKS 1 & 2 | Almost nobody use them, but it will be useful to have them!
+                  else if (bank == 1) bankList = "3, 4"; // Bank 1 uses a single bank in OoT3D (BANK_ENEMY)
+                  else if (bank == 2) bankList = "42, 4"; // Bank 2 uses a single bank in OoT3D (BANK_NATURE)
 
-                  console.log("BANKLIST: " + bankList);
+                  // console.log("BANKLIST: " + bankList);
 
                   var folder = song.type == "bgm" ? "!Background Music" : "!Melodies/!Fanfares";
                   var extraSafeName = finalSongName.replaceAll("꞉", "").replaceAll("∕", "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");

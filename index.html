@@ -1490,8 +1490,9 @@
                 if(song.lufs){
                   if(volumeBalancing == "flat"){
                     // TODO: Make the flat loudness user input
-                    // TODO: Make the flat loudness different for fanfares
-                    SeqUtils.setLoudness(seq, song.lufs, -19);
+                    var flatLoudness = -19;
+                    if(song.type == "fanfare") flatLoudness = -18; // Make fanfares a bit louder
+                    SeqUtils.setLoudness(seq, song.lufs, flatLoudness);
                     
                   } else if(volumeBalancing.startsWith("ideal-")){
                     // TODO: Implement ideal lufs for OOTRS

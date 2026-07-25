@@ -123,7 +123,7 @@
   height: calc(100vh - 46.5px - 7rem - 74px);
 }
 .container.with-preview-controls .song-view{
-  height: calc(100vh - 46.5px - 6.65rem - 74px);
+  height: calc(100vh - 46.5px - 6.65rem - 76px);
 }
 .container.with-preview-controls .preview-controls{
   display: initial;

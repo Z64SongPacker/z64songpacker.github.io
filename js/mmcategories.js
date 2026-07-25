@@ -57,18 +57,18 @@ export class MMCategories {
   };
 
   static idealLufs = {
-    "Field": "-19.81",
-    "Towns": "-23.29",
-    "Dungeon": "-18.66",
-    "Indoors": "-23.32",
-    "Minigames": "-17.99",
-    "Action events": "-20.64",
-    "Calm events": "-22.06",
-    "Boss fights": "-14.11",
-    "Special": "-19.26",
-    "Item get": "-16.58",
-    "Game over": "-18.92",
-    "Area clear": "-18.97"
+    "Field": "-19.81",            // Field
+    "Towns": "-23.29",            // Town
+    "Dungeon": "-18.66",          // Dungeon
+    "Indoors": "-23.32",          // Interior / Shop
+    "Minigames": "-17.99",        // Minigames
+    "Action events": "-20.64",    // Fight, Event
+    "Calm events": "-22.06",      // Event
+    "Boss fights": "-14.11",      // Fight
+    "Special": "-19.26",          // Event
+    "Item get": "-16.58",         // Collect
+    "Game over": "-18.92",        // Defeat
+    "Area clear": "-18.97"        // Victory
   }
 
   // ====================================== SPECIFIC BGM ==========================================
@@ -141,7 +141,7 @@ export class MMCategories {
   static calmEvents = {
     // 6 - Calm events
     "104": "Skull Kid",
-    "128": "Fairy Fountain",
+    "128": "Fairy Fountain", 
     "118": "File Select",
     "173": "Keaton's Quiz",
     "145": "Kaepora Gaebora",

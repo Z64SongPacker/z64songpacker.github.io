@@ -28,6 +28,8 @@ export class OoTCategories{
     return lufs;
   }
 
+  // Source: https://docs.google.com/spreadsheets/d/1EQWuVbshgFJ6wOlPSVCt5OcUpEQjaabOUi7aXCb84i0
+
   static field = [
     // 0 - Field
     "HyruleField",

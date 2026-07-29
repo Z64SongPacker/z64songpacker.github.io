@@ -2,27 +2,51 @@
 // Helpful as a middle point for each rando different category system to be set by packer settings.
 // Documentation on docs/tags.md.
 // Based on MMR and DK64R (dk64randomizer.com).
-export class Tags{
+export class PackerTags{
 
     // Maybe match a specific category by 2 matches of tags...?
     // Like HorseRace: put that one in any song that has: "Minigame-Happy", "Minigame-Goofy", "Minigame-Howdy", "Happy-Howdy", "Goofy-Howdy"
     // For the moment, only test on BGM until we are sure the theory is sound
 
     // Doing categorization this way will make all .ootrs to appear in OoT, and all .mmrs to appear in MM.
-    // That of course is not the plan, but it should make way to 
+    // That of course is not the idea... but it should allow some testing right now! 
 
     static toMM(tags){
-        for (const [cat, value] of Object.entries(MM)) {
-            
+        var finalCategories = [];
+        for (const [category, categoryTags] of Object.entries(this.MM)) {
+            if(this.compareTags(tags, categoryTags)) finalCategories.push(category);
         }
+        return finalCategories;
     }
 
     static toOoT(tags){
-
+        var finalGroups = [];
+        for (const [group, groupTags] of Object.entries(this.OoT)) {
+            if(this.compareTags(tags, groupTags)) finalGroups.push(group);
+        }
+        return finalGroups;
     }
 
     static toOoT3D(tags){
+        var oot3DCategories = [];
+        var ootGroups = this.toOoT(tags);
+        console.log(ootGroups);
+        for (const group of ootGroups){
+            oot3DCategories.push(this.OoTTo3D[group]);
+        }
+        return oot3DCategories;
+    }
 
+    static compareTags(tags1, tags2) {
+        const set2 = new Set(tags2);
+        let matchCount = 0;
+        for (const item of new Set(tags1)) {
+            if (set2.has(item)) {
+                matchCount++;
+                if (matchCount === 2) return true;
+            }
+        }
+        return false;
     }
 
 

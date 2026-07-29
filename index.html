@@ -49,6 +49,7 @@
       import * as bootstrap from "bootstrap";
       import { MMCategories } from "./js/mmcategories.js";
       import { OoTCategories } from "./js/ootcategories.js";
+      import { PackerTags } from "./js/packertags.js";
       import { SeqUtils } from "./js/sequtils.js";
       import { packOtr } from './js/otrwebtools/js/otrPacker.js';
       import { readSseq, writeSseq, readBcseq, writeBcseq, seqToBcseq, trackFlags, formatTrackFlags, BANKS } from './js/bcseqwebtools/index.js';
@@ -988,15 +989,15 @@
         $("#lbTitleSongs").text(songs.length == 0 ? "Songs view" : games.join(", "));
         games.forEach(game => $(`.btn-game[data-game="${game}"]`).addClass("active"));
 
-        if(songs.filter((s) => s.type.toLowerCase() == "fanfare").length == 0) $("#panelFanfares").append("<div class='opacity-50'>There are no fanfares for the selected game.</div>");
-        if(songs.filter((s) => s.type.toLowerCase() != "fanfare").length == 0) $("#panelSongs").append("<div class='opacity-50'>There are no background music tracks for the selected game.</div>");
+        if(songs.filter((s) => (s.type || "bgm").toLowerCase() == "fanfare").length == 0) $("#panelFanfares").append("<div class='opacity-50'>There are no fanfares for the selected game.</div>");
+        if(songs.filter((s) => (s.type || "bgm").toLowerCase() != "fanfare").length == 0) $("#panelSongs").append("<div class='opacity-50'>There are no background music tracks for the selected game.</div>");
 
         // Show the song list to the user
         songs.sort((a, b) => a.song.localeCompare(b.song)).forEach((s, i) => {
 
           // Get the values from the song
           var isOOTRS = s.file.toLowerCase().endsWith(".ootrs");
-          var isFanfare = s.type.toLowerCase() == "fanfare";
+          var isFanfare = (s.type || "bgm").toLowerCase() == "fanfare";
           var categoriesArray = toArray(s.categories);
           var categories = categoriesArray.map((c) => 
             `<span class="badge rounded-pill border">${isOOTRS ? c : MMCategories.toString(c)}</span>`
@@ -1461,7 +1462,7 @@
 
               // Change the internal name on modern files (yaml metadata format)
               if(file.name.endsWith(".metadata")){
-                // TODO: Seems that Crin won't be pursuing this anymore, but I'll still keep this here
+                // TODO: Seems that Crin won't be pursuing this anymore, but I'll still keep this here if she decides to come back
                 var metadataYaml = YAML.parse(await file.async("text"));
                 metadataYaml["metadata"]["display name"] = finalSongName;
                 z64File.file(file.name, YAML.stringify(metadataYaml));
@@ -1532,7 +1533,7 @@
 
                 // If BCSEQ add NOW the file (since we need to transform the seq), and also create the cmeta file
                 if(packFormat == "bcseq"){
-                  console.log("BANK: " + bank);
+                  // console.log("BANK: " + bank);
                   var bankOffset = parseInt(bank) + 4; // All banks in 3DS are decimal integers, offset by 4
                   var bankList = `${(bankOffset)}, 4`; // Apply offset and always include bank 4 (for chiptunes) 
                   if(bank == 0) bankList = "0, 1, 2, 4"; // Bank 0 is splitted, so we need to include all of the sfx banks 
@@ -1546,8 +1547,13 @@
                   var bcseq = seqToBcseq(seq, { bank });
                   var chFlags = trackFlags(bcseq);
                   
+                  console.log("TAGS FOR: " + song.game + " - " + song.song);
+                  console.log(song.tags);
+                  var category = (song.tags ? PackerTags.toOoT3D(song.tags).join(", ") : "!Background Music");
+                  console.log(category);
+                  
                   zip.file(`${folder}/${extraSafeName}.bcseq`, bcseq);
-                  zip.file(`${folder}/${extraSafeName}.cmeta`, `banks    = ${bankList}\nchFlags  = ${formatTrackFlags(chFlags)}\nvolume   = 100%\ncategory = ${(song.type == "bgm" ? "Background Music" : "Fanfares")}`);
+                  zip.file(`${folder}/${extraSafeName}.cmeta`, `banks    = ${bankList}\nchFlags  = ${formatTrackFlags(chFlags)}\nvolume   = 100%\ncategory = ${(song.type == "bgm" ? category : "Fanfares")}`);
                 
                 } else{
                   z64File.file(file.name, seq);

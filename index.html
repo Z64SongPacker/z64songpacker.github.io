@@ -113,7 +113,8 @@
       var previewShuffleHistory = [];
 
       var offsetDate = new Date();
-      offsetDate.setDate(offsetDate.getDate() - 5);
+      var offsetDays = 10; // TODO: Augmented from 5 to 10 for testing purposes... add it as a custom user property! 
+      offsetDate.setDate(offsetDate.getDate() - offsetDays);
       var offsetTimestamp = offsetDate.getTime();
 
       function errorResponseToast(response){
@@ -1007,7 +1008,7 @@
           var hasNotes = !! s.notes;
           
           var offsetDate = new Date();
-          offsetDate.setDate(offsetDate.getDate() - 10); // TODO: Augmented from 5 to 10 for testing purposes... add it as a custom user property! 
+          offsetDate.setDate(offsetDate.getDate() - offsetDays);
           var isNew = Date.parse(s.creationDate) >= offsetDate;
           var isUpdated = Date.parse(s.lastUpdateDate) >= offsetDate;
           var badgeAppend = (isNew || isUpdated) ? ` <span class="badge text-bg-secondary">${isNew ? "New" : "Updated"}</span>` : "";

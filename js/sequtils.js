@@ -11,9 +11,11 @@ export class SeqUtils{
     }
 
     static setLoudness(seq, originalLoudness, targetLoudness){
+        console.log("Setting loudness...");
         var mainVolumeCommandIndex = seq.indexOf(0xDB);
         var mainVolume = seq[mainVolumeCommandIndex + 1];
-        var finalVolume = convertMidiVolumeByLoudness(mainVolume, originalLoudness, targetLoudness);
+        //console.log("Getting current volume... " + mainVolume);
+        var finalVolume = this.convertMidiVolumeByLoudness(mainVolume, originalLoudness, targetLoudness);
 
         console.log(`Volume balanced: ${originalLoudness} LUFS -> ${targetLoudness} LUFS  | ${mainVolume} -> ${finalVolume}`);
         seq[mainVolumeCommandIndex + 1] = finalVolume;
@@ -21,6 +23,8 @@ export class SeqUtils{
     }
 
     static convertMidiVolumeByLoudness(midiVolume, originalLoudness, targetLoudness){
+        //console.log("convertMidiVolumeByLoudness");
+
         // First, we need to convert our current volume to decibels
         var currentDb = this.midiToDb(midiVolume);
         //console.log("Current dB: " + currentDb);

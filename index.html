@@ -113,7 +113,7 @@
       var previewShuffleHistory = [];
 
       var offsetDate = new Date();
-      var offsetDays = 30; // TODO: Augmented from 5 to 30 for testing purposes... add it as a custom user property! 
+      var offsetDays = 10; // TODO: Add this as a custom user property! 
       offsetDate.setDate(offsetDate.getDate() - offsetDays);
       var offsetTimestamp = offsetDate.getTime();
 
@@ -754,11 +754,15 @@
         var filterCustomBank = $("#cbxFilterCustomBank").is(":checked");
         var filterCustomSamples = $("#cbxFilterCustomSamples").is(":checked");
         var filterFormmask = $("#cbxFilterFormmask").is(":checked");
+        
+        var applyDebugFilters = !$("#panelFilterDebug").hasClass("d-none");
+        var filterDebugNoLufs = applyDebugFilters && $("#cbxFilterDebugNoLufs").is(":checked");
+        var filterDebugNoPreview = applyDebugFilters && $("#cbxFilterDebugNoPreview").is(":checked");
 
         filteredDatabase = database.filter(s => {
           return (filterGameName ? s.game.toLowerCase().includes(filterGameName.toLowerCase()) : true) &&
                  (filterSongName ? s.song.toLowerCase().includes(filterSongName.toLowerCase()) : true) &&
-                 (filterSequenceType ? s.type == filterSequenceType : true) &&
+                 (filterSequenceType ? (s.type == filterSequenceType) : true) &&
                  (filterMusicGroups ? (s.categories ?? []).includes(filterMusicGroups) : true) &&
                  (filterComposers ? (s.composers ?? []).includes(filterComposers) : true) &&
                  (filterConverters ? (s.converters ?? []).includes(filterConverters) : true) &&
@@ -766,7 +770,10 @@
                  ((filterCustomSamples ? s.usesCustomSamples : false) ||
                  (filterCustomBank ? (s.usesCustomBank && !s.usesCustomSamples) : false) ||
                  (filterVanillaBank ? (!s.usesCustomSamples && !s.usesCustomBank) : false) ||
-                 (filterFormmask ? s.usesFormmask : false));
+                 (filterFormmask ? s.usesFormmask : false) ||
+
+                 (filterDebugNoLufs ? !s.lufs : false) ||
+                 (filterDebugNoPreview ? !s.preview : false));
         });
 
         loadGamesList();
@@ -1327,7 +1334,8 @@
           if(binariesResponse.ok){
             var repoBinaries = await new JSZip().loadAsync(await binariesResponse.blob());
             binaries[selectedRepoIndex] = repoBinaries;
-            // console.log(binaries);
+            console.log("BINARIES LOADED");
+            console.log(binaries);
 
           } else{
             errorResponseToast(binariesResponse);
@@ -1414,7 +1422,7 @@
             // Get the final name for the song using the options selected
             var extension = song.file.split('.').pop();
             var finalSongNameUnsafe = `${gameName} - ${song.song}`;
-            var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(finalSongNameUnsafe);
+            var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(finalSongNameUnsafe).replaceAll("꞉", "").replaceAll("∕", "");
             otrSequence.name = finalSongNameUnsafe;
 
             // If using OTR or BCSEQ, skip any song with custom bank or samples (sadly...)
@@ -1436,6 +1444,8 @@
               return isSeqA - isSeqB;
             });
             var bank = -1;
+
+            console.log("Trying to add file: " + fileName);
 
             for(var i=0; i<internalFiles.length; i++){
               var file = internalFiles[i];
@@ -1471,6 +1481,8 @@
 
               // Changes to the seq files
               if(file.name.endsWith(".seq") || file.name.endsWith(".zseq") || file.name.endsWith(".aseq")){
+                console.log("Checking: " + file.name);
+
                 // Pretty sure using uint8array requires compatibility from the browser...
                 // TODO: Check if it works in other browsers than chrome
                 var seq = await file.async("uint8array");
@@ -1485,6 +1497,8 @@
                   }
                   else selectionsHashMap.push(hash);
                 }
+
+                console.log("CHECKING LUFS");
                 
 
                 // Balance the volume of the files
@@ -1494,7 +1508,10 @@
                     // TODO: Make the flat loudness user input
                     var flatLoudness = -19;
                     if(song.type == "fanfare") flatLoudness = -18; // Make fanfares a bit louder
+
+                    console.log("setting loudness");
                     SeqUtils.setLoudness(seq, song.lufs, flatLoudness);
+                    console.log("we done setting loudness!");
                     
                   } else if(volumeBalancing.startsWith("ideal-")){
                     // TODO: Implement ideal lufs for OOTRS
@@ -1511,12 +1528,16 @@
                     }
                   }
                 }
+
+                console.log("CHECKING PRE-AMP");
                 
                 // Apply the volume pre amplifying
                 // TODO: CONVERT THIS INTO DECIBELS!!!
                 if(volumePreAmplifying != 0){
                   SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
                 }
+
+                console.log("CHECKING OTR METADATA");
 
                 // If this is mmrs and otr, build a metadata string for it
                 if((packFormat.startsWith("otr-") || packFormat == "bcseq") && extension == "mmrs"){
@@ -1531,6 +1552,7 @@
                   otrSequence.metaData = `${finalSongNameUnsafe}\n${bank.toString(16)}\n${song.type}`;
                 }
                 
+                console.log("CHECKING BCSEQ")
 
                 // If BCSEQ add NOW the file (since we need to transform the seq), and also create the cmeta file
                 if(packFormat == "bcseq"){
@@ -1544,7 +1566,7 @@
                   // console.log("BANKLIST: " + bankList);
 
                   var folder = song.type == "bgm" ? "!Background Music" : "!Melodies/!Fanfares";
-                  var extraSafeName = finalSongName.replaceAll("꞉", "").replaceAll("∕", "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                  var extraSafeName = finalSongName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
                   var bcseq = seqToBcseq(seq, { bank });
                   var chFlags = trackFlags(bcseq);
                   
@@ -1557,12 +1579,15 @@
                   zip.file(`${folder}/${extraSafeName}.cmeta`, `banks    = ${bankList}\nchFlags  = ${formatTrackFlags(chFlags)}\nvolume   = 100%\ncategory = ${(song.type == "bgm" ? category : "Fanfares")}`);
                 
                 } else{
+                  console.log("Zipping file...?")
                   z64File.file(file.name, seq);
                   otrSequence.seqData = seq;
                 }
               }
             }
             
+            console.log("File added!");
+
             // Add the file
             songCount++;
             console.log(`Packing: ${fileName}`);
@@ -2380,6 +2405,18 @@
               <div class="form-check">
                 <input type="checkbox" class="form-check-input" id="cbxFilterFormmask" checked>
                 <label class="form-check-label" for="cbxFilterFormmask">Uses formmask (MM only)</label>
+              </div>
+            </div>
+
+            <div class="form-group col-12 mb-3" id="panelFilterDebug">
+              <label>Debug filters:</label>
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="cbxFilterDebugNoLufs" checked>
+                <label class="form-check-label" for="cbxFilterDebugNoLufs">Has missing LUFS</label>
+              </div>
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="cbxFilterDebugNoPreview" checked>
+                <label class="form-check-label" for="cbxFilterDebugNoPreview">Has missing preview</label>
               </div>
             </div>
 

@@ -452,6 +452,7 @@
         $("#txtComposers").val(toArray(songToEdit.composers).join(", "));
         $("#txtConverters").val(toArray(songToEdit.converters).join(", "));
         $("#cbxIsDMCACritical").prop('checked', songToEdit.isDMCACritical ? true : false);
+        $("#txtLoudness").val(songToEdit.lufs);
         $("#txtNotes").val(songToEdit.notes);
 
         // Also select the preview file
@@ -662,6 +663,7 @@
         $("#txtPreviewLink").val("");
         clearPreviewInput();
         $("#ddlPreviewType").trigger("change");
+        $("#txtLoudness").val("");
         $("#txtNotes").val("");
         $("#mainForm").removeClass("was-validated");
 
@@ -724,6 +726,7 @@
         entry.composers = toArray($("#txtComposers").val());
         entry.converters = toArray($("#txtConverters").val());
         entry.notes = $("#txtNotes").val().trim();
+        entry.lufs = $("#txtLoudness").val().trim().replace(",", ".");
 
         //entry.isDMCACritical = $("#cbxIsDMCACritical").is(":checked");
 
@@ -1340,6 +1343,14 @@
               </div>
             </div>
             
+            <div class="form-group mb-3">
+              <label>Loudness (LUFS):</label>
+              <p class="hint">
+                The integrated max loudness of your song, in LUFS. Check <a>this guide</a> to know how to get it.
+              </p>
+              <input id="txtLoudness" type="number" class="form-control" min="-50" max="50" step="0.01" required>
+            </div>
+
             <hr>
   
             <div class="form-group mb-3">

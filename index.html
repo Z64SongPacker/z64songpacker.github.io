@@ -73,8 +73,8 @@
         maintainFolderStructure: false,
         useShortGameNames: false,
         volumePreAmplifying: 0,
-        volumeBalancing: "none",
-        includeOnlyVolumeBalancedTracks: false,
+        volumeBalancing: "flat",
+        includeOnlyVolumeBalancedTracks: true,
         packFormat: "zip",
 
         // Available repos
@@ -1020,8 +1020,12 @@
           var isUpdated = Date.parse(s.lastUpdateDate) >= offsetDate;
           var badgeAppend = (isNew || isUpdated) ? ` <span class="badge text-bg-secondary">${isNew ? "New" : "Updated"}</span>` : "";
           
+          // Check if is unsafe
           var isUnsafe = s.repoIndex >= defaultSettings.userRepos.length;
           if(isUnsafe) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
+
+          // Check if it has volume issues
+          if(!s.lufs) badgeAppend += ` <span class="badge text-bg-warning">Not audio balanced</span>`;
 
           var format = isOOTRS ? "OOTRS" : "MMRS";
           if(s.usesFormmask) format += " formmask";
@@ -2038,9 +2042,9 @@
                 <label class="form-check-label" for="cbxIncludeOnlyVolumeBalancedTracks">Include only volume balanced tracks</label>
               </div>
             </li>
-            <hr class="my-2">
-            <li><h6 class="dropdown-header">Volume pre-amplifying:</h6></li>
-            <li>
+            <hr class="d-none my-2">
+            <li class="d-none"><h6 class="dropdown-header">Volume pre-amplifying:</h6></li>
+            <li class="d-none">
               <div class="px-3 row">
                 <div class="col">
                   <input type="range" class="form-range" min="-100" max="100" step="1" id="rgVolumePreAmplifying" list="dtVolumePreAmplifying"

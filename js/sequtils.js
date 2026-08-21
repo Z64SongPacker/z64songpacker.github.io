@@ -58,7 +58,7 @@ export class SeqUtils{
 
     // Normalizes to format 0x00
     static normalizeBank(bank){
-        return parseInt(bank, 16).toString(16).toUpper()
+        return parseInt(bank, 16).toString(16).toUpperCase()
     }
 
 
@@ -96,7 +96,7 @@ export class SeqUtils{
     static convertIfRomanNumeral(word){
         // 1. Ensure input is a string and force upper
         if (typeof word !== 'string') return word;
-        const str = word.toUpper().trim();
+        const str = word.toUpperCase().trim();
 
         // 2. Regex validating standard Roman numerals up to 3999 (MMMCMXCIX)
         const romanRegex = /^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/;

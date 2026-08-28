@@ -1,5 +1,5 @@
 ---
-title: How to get the loudness (LUFS) of your song
+title: Z64SongPacker | How to get the loudness (LUFS) of your song
 ---
 
 # How to get the loudness (LUFS) of your song
@@ -55,13 +55,13 @@ There are some steps you have to make so that Z64 Music Manager is ready to reco
 
 1. When the app it's installed, you may notice that all your mmrs and ootrs files have a shiny new icon. **Double click any file**, the program will open and show information about it. **Do not press the "Record" button yet**.
 
-<img src="../img/lufs-z64mm-icons.png" width="280"/>
-<img src="../img/lufs-z64mm-main.png" width="220"/>
+    <img src="../img/lufs-z64mm-icons.png" width="280"/>
+    <img src="../img/lufs-z64mm-main.png" width="220"/>
 
 2. Go to **File > Settings** and in the new window you will be presented with some options. The ones under **Tools** is what you need to setup.
 
-<img src="../img/lufs-z64mm-go-to-settings.png" width="200"/>
-<img src="../img/lufs-z64mm-settings.png" width="300"/>
+    <img src="../img/lufs-z64mm-go-to-settings.png" width="200"/>
+    <img src="../img/lufs-z64mm-settings.png" width="300"/>
 
 3. For **BizHawk path** press the **[...]** button and go to your installation of BizHawk and select **EmuHawk.exe**.
 
@@ -71,11 +71,11 @@ There are some steps you have to make so that Z64 Music Manager is ready to reco
 
 6. Close the settings window, and press the **Record** button. After a while, the emulator will pop up and start recording your song really fast. Wait until the emulator closes itself.
 
-<img src="../img/lufs-z64mm-emu-recording.png" width="300"/>
+    <img src="../img/lufs-z64mm-emu-recording.png" width="300"/>
 
 7. You're done! An mp3 file with the recording will be next to your file.
 
-<img src="../img/lufs-z64mm-recording-done.png" width="150"/>
+    <img src="../img/lufs-z64mm-recording-done.png" width="150"/>
 
 
 ## 3. Get the LUFS value
@@ -87,10 +87,10 @@ This was made for dk64randomizer.com, but it serves our purposes also.
 
 2. Press the big **Load file** button, and select the mp3 recording you just made.
 
-<img src="../img/lufs-lt-main.png" width="400"/>
+    <img src="../img/lufs-lt-main.png" width="400"/>
 
 3. You will be shown a fancy graphic with an analysis of the song. The value we are interested is the **Integrated Max**. Copy that value to a safe place.
 
-<img src="../img/lufs-lt-result.png" width="400"/>
+    <img src="../img/lufs-lt-result.png" width="400"/>
 
 4. And you're done! Just put that value in the submission form, and you are good to go!

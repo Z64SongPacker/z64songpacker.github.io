@@ -1,3 +1,7 @@
+---
+title: How to get the loudness (LUFS) of your song
+---
+
 # How to get the loudness (LUFS) of your song
 
 Alright, you have your shiny new song ready for the upload. That's great!

@@ -841,7 +841,7 @@
         });
 
         // And now, combine them both!
-        var gamesAndSeries = [...new Set(series.concat(gamesWithNoSeries))].sort();
+        var gamesAndSeries = [...new Set(series.concat(gamesWithNoSeries))].sort((a, b) => a.localeCompare(b, 'en', {'sensitivity': 'base'}));
 
         // Now, loop everything and add it to the list
         gamesAndSeries.forEach((game, i) => {

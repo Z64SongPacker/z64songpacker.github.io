@@ -1316,6 +1316,7 @@
         // Create the main archive to download
         var zip = new JSZip();
         var otr = [];
+        var packedFileNames = new Set();
 
         if(includeSelectionsAndSettings){
           var settings = getSettings();
@@ -1352,6 +1353,7 @@
           try{
             var song = database[songIndex];
             var repoIndex = song.repoIndex;
+            var repoAcronym = repos[repoIndex].name.replace(/\([^)]*\)/g, "").split(/\s/).reduce((response,word)=> response+=word.slice(0,1),'');
             var otrSequence = {}; // <- Format: name, seqData, metaData
 
             // Exclude the unsafe tracks if the user wants it for this specific download
@@ -1426,6 +1428,13 @@
             // Get the final name for the song using the options selected
             var extension = song.file.split('.').pop();
             var finalSongNameUnsafe = `${gameName} - ${song.song}`;
+
+            // Check if they have duplicated names
+            // If that's the case, append the repo name to differentiate
+            if(packedFileNames.has(finalSongNameUnsafe.toUpperCase())){
+              finalSongNameUnsafe = `${finalSongNameUnsafe} (${repoAcronym})`;
+            }
+
             var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(finalSongNameUnsafe).replaceAll("꞉", "").replaceAll("∕", "");
             otrSequence.name = finalSongNameUnsafe;
 
@@ -1594,13 +1603,20 @@
 
             // Add the file
             songCount++;
+            packedFileNames.add(finalSongNameUnsafe.toUpperCase());
             console.log(`Packing: ${fileName}`);
             setLoadingOverlayText(`Packing... ${songCount} files`);
 
+
             // For ZIP, add it to the archive
             // For OTR, push it to the list for packing later
-            if(packFormat == "zip") zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
-            else if(packFormat.startsWith("otr-")) otr.push(otrSequence);
+            // Also we check if the tracks are duplicated
+            if(packFormat == "zip") {
+              zip.file(fileName, await z64File.generateAsync({ type: "blob" }));
+              
+            } else if(packFormat.startsWith("otr-")) {
+              otr.push(otrSequence);
+            }
 
           } catch(e){
             // An error ocurred... skip this track

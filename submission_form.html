@@ -197,14 +197,17 @@
           // Check all the repos to see which one are a z64 repo
           await Promise.all(allRepos.data.map(async (repo) => {
 
-            // If it's a fork, query the original repo
+            var originalRepoName = repo.name;
             var originalRepoOwner = repo.owner.login;
             var originalRepoAvatarUrl = avatarUrl;
+
+            // If it's a fork, query the original repo
             if(repo.fork){
               var originalRepo = await octokit.request('GET /repos/{owner}/{repo}', {
                 owner: repo.owner.login,
                 repo: repo.name
               });
+              originalRepoName = originalRepo.data.parent.name;
               originalRepoOwner = originalRepo.data.parent.owner.login;
               originalRepoAvatarUrl = originalRepo.data.parent.owner.avatar_url;
             }
@@ -213,7 +216,7 @@
             // We don't use raw.githubusercontent.com, since it has a cache delay of 300 seconds (5 mins) that can cause issues
             var response = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
               owner: originalRepoOwner,
-              repo: repo.name,
+              repo: originalRepoName,
               path: "z64packer/z64musicpacker.properties",
               request: { retries: 0 }
             }).catch((error) => { });
@@ -222,7 +225,7 @@
             if(response === undefined){
               var response = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
                 owner: originalRepoOwner,
-                repo: repo.name,
+                repo: originalRepoName,
                 path: "z64musicpacker.properties",
                 ref: "z64packer",
                 request: { retries: 0 }
@@ -242,6 +245,7 @@
                 repoDefaultBranch: repo.default_branch,
                 repoIsFork: repo.fork, // <-- Make this tool also available for repo owners
 
+                originalRepoName: originalRepoName,
                 originalRepoOwner: originalRepoOwner,
                 originalRepoAvatarUrl: originalRepoAvatarUrl,
 
@@ -811,7 +815,7 @@
           // Check if a pull request is already up for this repo
           var currentPRResult = await octokit.request('GET /repos/{owner}/{repo}/pulls', {
             owner: selectedRepo.originalRepoOwner,
-            repo: selectedRepo.repoName,
+            repo: selectedRepo.originalRepoName,
             state: "open",
             head: username + ":" + selectedRepo.repoDefaultBranch,
 
@@ -839,7 +843,7 @@
             if(noCurrentPR){
               var pullRequestResult = await octokit.request('POST /repos/{owner}/{repo}/pulls', {
                 owner: selectedRepo.originalRepoOwner,
-                repo: selectedRepo.repoName,
+                repo: selectedRepo.originalRepoName,
                 title: title,
                 body: comment,
                 head: username + ":" + selectedRepo.repoDefaultBranch, // <-- We only do to the main branch... I could implement it for selected branches tho
@@ -862,7 +866,7 @@
             } else{
               var commentResult = await octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
                 owner: selectedRepo.originalRepoOwner,
-                repo: selectedRepo.repoName,
+                repo: selectedRepo.originalRepoName,
                 issue_number: prNumber,
                 body: comment,
 
@@ -882,13 +886,13 @@
 
           // If we have a PR already open, then we are good to go!
           if(prNumber > 0){
-            $("#btnViewCurrentPullRequest").attr("href", `https://github.com/${selectedRepo.originalRepoOwner}/${selectedRepo.repoName}/pull/${prNumber}`);
+            $("#btnViewCurrentPullRequest").attr("href", `https://github.com/${selectedRepo.originalRepoOwner}/${selectedRepo.originalRepoName}/pull/${prNumber}`);
             $("#btnCreateNewPullRequest, #pCreateNewPullRequest").addClass("d-none");
             $("#btnViewCurrentPullRequest, #pViewCurrentPullRequest").removeClass("d-none");
 
           // If there's no PR, then prompt the user to create it manually
           } else{
-            $("#btnCreateNewPullRequest").attr("href", `https://github.com/${selectedRepo.originalRepoOwner}/${selectedRepo.repoName}/compare/${selectedRepo.repoDefaultBranch}...${username}:${selectedRepo.repoName}:${selectedRepo.repoDefaultBranch}?expand=1`);
+            $("#btnCreateNewPullRequest").attr("href", `https://github.com/${selectedRepo.originalRepoOwner}/${selectedRepo.originalRepoName}/compare/${selectedRepo.repoDefaultBranch}...${username}:${selectedRepo.repoName}:${selectedRepo.repoDefaultBranch}?expand=1`);
             $("#btnCreateNewPullRequest, #pCreateNewPullRequest").removeClass("d-none");
             $("#btnViewCurrentPullRequest, #pViewCurrentPullRequest").addClass("d-none");
             $("#txtPullRequestTitle").text(title);
@@ -908,7 +912,7 @@
           // I think it will be better to just trigger this somehow with a workflow
           var dispatchResult = await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
             owner: selectedRepo.originalRepoOwner,
-            repo: selectedRepo.repoName,
+            repo: selectedRepo.originalRepoName,
             workflow_id: 'z64_database_fixer.yml',
             ref: selectedRepo.repoDefaultBranch,
 

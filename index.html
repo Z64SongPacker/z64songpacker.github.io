@@ -599,7 +599,8 @@
           $("#badgeRepoUnsafe").toggleClass("d-none", !selectedReposIndices.some(i => i >= defaultSettings.userRepos.length));
           $("#btnViewRepositoryOnGithub").toggleClass("d-none", !singleRepo);
 
-          for(var selectedRepoIndex of selectedReposIndices){
+          var gameIds = new Set();
+          for(var selectedRepoIndex of selectedReposIndices.sort()){
             var selectedRepo = repos[selectedRepoIndex];
             var repoName = selectedRepo.name ?? selectedRepo.repoName;
 
@@ -612,11 +613,15 @@
             var gamesDbLink = rawLink + "z64games.json";
             var gamesDbResponse = await githubFetch(gamesDbLink);
             if(gamesDbResponse.ok){
-              // Filter any unwanted values
-              gamesDb = [...new Set([
-                ...gamesDb,
-                ...(await gamesDbResponse.json()).filter((g) => typeof(g) == "object")
-              ])];
+
+              // Do it this way so it's faster (and prevent oom errors and duplication)
+              var repoGamesDb = (await gamesDbResponse.json()).filter((g) => typeof(g) == "object");
+              for(var g of repoGamesDb){
+                if (!gameIds.has(g.game)) {
+                  gamesDb.push(g);
+                  gameIds.add(g.game);
+                }
+              }
 
             } else{
               loadErrorView(gamesDbResponse);

@@ -431,6 +431,7 @@
         }, {
           name: 'songs',
           source: songs,
+          limit: 20
         });
 
         //toast("Database loaded!");
@@ -464,10 +465,17 @@
         $("#ddlPreviewType").val(previewType);
         $("#ddlPreviewType").trigger("change");
         if(previewType == "link") $("#txtPreviewLink").val(songToEdit.preview);
+        if(previewType == "file") previewFormat = songToEdit.preview.split(".").pop().toLowerCase();
 
         // Also, make fileUpload optional, when we only want to modify metadata and not the file itself
         $("#fileUpload")[0].required = false;
         $("#mainForm").removeClass("d-none");
+
+        // And load the internal info (needed for editing)
+        $("#lbFormat").text(songToEdit.file.split('.').pop().toUpperCase());
+        $("#lbUsesCustomBank").text(songToEdit.usesCustomBank ? "Yes" : "No");
+        $("#lbUsesCustomSamples").text(songToEdit.usesCustomSamples ? "Yes" : "No");
+        $("#lbUsesFormmask").text(songToEdit.usesFormmask ? "Yes" : "No");
       }
 
 
@@ -738,24 +746,29 @@
         var unsafeCharacters = /[\\\/:*?"<>|]/g
         var removeTrailingDots = /\.+$/g
         var safeFilePath = entry.game.replace(unsafeCharacters, "").replace(removeTrailingDots, "") + "/" + entry.song.replace(unsafeCharacters, "");
+        var extension = $("#lbFormat").text().toLowerCase();
 
-        // If we have a file selected... update the path
+        // Always update the path
+        // If it's different, it will be detected on commit
+        entry.file = safeFilePath + "." + extension;
+
+        // If we have a file selected... update the properties
         if(fileBase64.length > 0){
           entry.type = $("#lbSongType").text();
           entry.categories = toArray($("#lbMusicGroups").text());
           entry.usesCustomBank = $("#lbUsesCustomBank").text() == "Yes";
           entry.usesCustomSamples = $("#lbUsesCustomSamples").text() == "Yes";
           if(!ootrs) entry.usesFormmask = $("#lbUsesFormmask").text() == "Yes";
-
-          // Generate a local path for the entry
-          var extension = $("#lbFormat").text().toLowerCase();
-          entry.file = safeFilePath + "." + extension;
         }
+
+        // START SUBMISSION
+        console.log(`SUBMITTING ENTRY:`);
+        console.log(entry);
 
         // Add/modify the preview link/file
         // entry.preview = "";
         if($("#ddlPreviewType").val() == "link") entry.preview = $("#txtPreviewLink").val();
-        else if(previewBase64.length > 0){
+        else {
           // Generate a local path for the preview and upload it as a commit
           entry.preview = safeFilePath + "." + previewFormat;
           var previewCommitResult = await commitFileToRepo(octokit, previewBase64, selectedRepo.previews, originalPreviewPath, entry.preview);
@@ -779,6 +792,8 @@
         database.push("__SENTINEL__: ONLY ADD ENTRIES ABOVE THIS LINE TO PREVENT MERGE CONFLICTS. Oh also, don't delete it please thank you <3");
 
         // If we have a file selected, upload it as a new commit
+        // TODO: DO THIS ALSO IF THE FILE IS RENAMED !!!
+        console.log("COMMITING NEW FILE");
         var fileCommitResult = await commitFileToRepo(octokit, fileBase64, selectedRepo.binaries, originalFilePath, entry.file);
         if(!fileCommitResult) return;
 
@@ -930,42 +945,83 @@
           successToast("Process completed! Triggering Database Fixer workflow!");
         }
       }
-      async function commitFileToRepo(octokit, fileBase64, folder, originalPath, finalPath){
-        if(fileBase64.length > 0){
-          var editMode = (originalPath ?? "") != "";
-          var fileSha = null;
 
-          // Always check if the original file exists, even for new uploads
-          // IT SHOULD NEVER HAPPEN, but if it does, we overwrite the original file if exists
-          // That's because we already check for duplicates in the form itself
-          var getFileResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
-            owner: username,
-            repo: selectedRepo.repoName,
-            path: folder + (editMode ? originalPath : finalPath),
-            request: {
-              retries: 0
-            }
-          }).catch((err) => {
-            err = `Couldn't get original file from the repo: ${err}`;
-          });
-          if(getFileResponse !== undefined) {
-            fileSha = getFileResponse.data.sha;
-            
-            // For new uploads, also check if the files are the same...
-            // That way we prevent unnecesary commits by skipping the upload process.
-            if(fileBase64 == getFileResponse.data.content.replace(/(\r\n|\n|\r)/gm, "")){
-              return true;
+
+      // TODO: NOW ORIGINAL PATH AND FINAL PATH NEED TO HAVE FOLDERS INCLUDED!!!!
+      async function commitFileToRepoWithFolder(octokit, fileBase64, originalPath, finalPath){
+        console.log(`COMMITING FILE: ${originalPath} -> ${finalPath}`);
+
+        // We also have to consider any renaming
+        var editMode = (originalPath ?? "") != "";
+        var fileSha = null;
+        var originalFileBase64 = null;
+
+        // There are 3 possible cases:
+        // 1. New file (ogPath null)
+        // 2. Replace existing file (ogPath not null and same as finalPath)
+        // 3. Move existing file (ogPath not null and different as finalPath)
+
+        // Get the original file, or current file
+        // Then make a decision of what to do afterwards...
+        console.log("Getting existing file... " + (editMode ? originalPath : finalPath));
+        var getFileResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+          owner: username,
+          repo: selectedRepo.repoName,
+          path: (editMode ? originalPath : finalPath),
+          request: {
+            retries: 0
+          }
+        }).catch((err) => {
+          err = `Couldn't get original file from the repo: ${err}`;
+        });
+
+        // Extract any neccesary information
+        if(getFileResponse !== undefined) {
+          console.log("Found existing file!");
+
+          fileSha = getFileResponse.data.sha;
+          originalFileBase64 = getFileResponse.data.content.replace(/(\r\n|\n|\r)/gm, "");
+
+          // If the content is empty, that means the file is too big and we need to get it with a raw query
+          if(originalFileBase64 == ""){
+            var getRawFileResponse = await fetch(
+              `https://api.github.com/repos/${username}/${selectedRepo.repoName}/contents/${(editMode ? originalPath : finalPath)}?ref=${latestCommitSha}`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${authToken}`,
+                  'Accept': 'application/vnd.github.raw+json'
+                }
+              }
+            ).catch((err) => {
+              error = `Couldn't get original file from the repo: ${err}`;
+            });
+
+            if(getRawFileResponse?.ok){
+              originalFileBase64 = (await toBase64(await getRawFileResponse.blob())).split(",").pop();
+              
+            } else{
+              // We stop the process if we can't get the file...
+              // Continuing may destroy a file and replace it with an empty one!
+              errorToast("Could not get the original file from the repo. Process stopped to avoid corruption.");
+              $("#loadingOverlay").addClass("d-none");
+              return false;
             }
           }
-          
-          // If we are editing, check if the paths are different...
-          // If they are, then delete the original file for a clean replacement
-          // WE HAVE TO DO THIS, since the unique names are needed to prevent duplication or overwrites
-          if(editMode && (folder + originalPath) != (folder + finalPath)){
+        }
+
+        // Make changes ONLY if the contents or the paths are different...
+        var contentsDiffer = (fileBase64.length > 0) && (originalFileBase64 != fileBase64);
+        var pathsDiffer = editMode && (originalPath != finalPath);
+        console.log(`contentsDiffer: ${contentsDiffer} | pathsDiffer: ${pathsDiffer}`);
+        if(contentsDiffer || pathsDiffer){
+
+          // Delete the original file if exists
+          if(editMode && pathsDiffer){
+            console.log("Deleting existing file... " + originalPath);
             var deleteFileResponse = await octokit.request('DELETE /repos/{owner}/{repo}/contents/{path}', {
               owner: username,
               repo: selectedRepo.repoName,
-              path: folder + originalPath,
+              path: originalPath,
               message: `Delete file ${originalPath} for replacement`,
               sha: fileSha,
             }).catch((err) => {
@@ -976,17 +1032,34 @@
               return false;
             }
 
-            // Reset the sha, since we will be creating a new file
-            fileSha = null; 
-          }
+            // Check if we are stepping on a file, so we can overwrite it safely
+            console.log("Checking if final path is used... " + finalPath);
+            var getFinalPathResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+              owner: username,
+              repo: selectedRepo.repoName,
+              path: finalPath,
+              request: {
+                retries: 0
+              }
+            }).catch((err) => {
+              err = `Couldn't get final path from the repo: ${err}`;
+            });
 
-          // Finally, add or update the file
+            // If the file exists, get the sha to overwrite (SHOULD NOT HAPPEN THO)
+            if(getFinalPathResponse !== undefined) fileSha = getFinalPathResponse.data.sha;
+
+            // If doesn't exists, we are safe to add it as a new one!
+            else fileSha = null;
+          }
+          
+          // Finally add the new file
+          console.log(`Uploading file ${finalPath} with sha ${fileSha}`);
           var uploadFileResult = await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
             owner: username,
             repo: selectedRepo.repoName,
-            path: folder + finalPath,
+            path: finalPath,
             message: `${editMode ? "Modify" : "Add new"} file ${finalPath}`,
-            content: fileBase64,
+            content: (fileBase64.length > 0) ? fileBase64 : originalFileBase64, // <-- Check if we are modifying or copying!
             sha: fileSha,
           }).catch((err) => {
             errorToast(`Couldn't upload the new file (${finalPath}) to the repo: ${err}`);
@@ -996,7 +1069,14 @@
             return false;
           }
         }
+
         return true;
+      }
+
+      async function commitFileToRepo(octokit, fileBase64, folder, originalPath, finalPath){
+        return await commitFileToRepoWithFolder(octokit, fileBase64,
+          (originalPath ?? "") == "" ? "" : (folder + originalPath),
+          (folder + finalPath));
       }
 
 

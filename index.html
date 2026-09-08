@@ -1499,7 +1499,7 @@
 
               // Changes to the seq files
               if(file.name.endsWith(".seq") || file.name.endsWith(".zseq") || file.name.endsWith(".aseq")){
-                console.log("Checking: " + file.name);
+                //console.log("Checking: " + file.name);
 
                 // Pretty sure using uint8array requires compatibility from the browser...
                 // TODO: Check if it works in other browsers than chrome
@@ -1516,9 +1516,6 @@
                   else selectionsHashMap.push(hash);
                 }
 
-                console.log("CHECKING LUFS");
-                
-
                 // Balance the volume of the files
                 // We can only do it if we know their loudness
                 if(song.lufs){
@@ -1526,10 +1523,7 @@
                     // TODO: Make the flat loudness user input
                     var flatLoudness = -19;
                     if(song.type == "fanfare") flatLoudness = -18; // Make fanfares a bit louder
-
-                    console.log("setting loudness");
                     SeqUtils.setLoudness(seq, song.lufs, flatLoudness);
-                    console.log("we done setting loudness!");
                     
                   } else if(volumeBalancing.startsWith("ideal-")){
                     // TODO: Implement ideal lufs for OOTRS
@@ -1546,16 +1540,12 @@
                     }
                   }
                 }
-
-                console.log("CHECKING PRE-AMP");
                 
                 // Apply the volume pre amplifying
                 // TODO: CONVERT THIS INTO DECIBELS!!!
-                if(volumePreAmplifying != 0){
-                  SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
-                }
-
-                console.log("CHECKING OTR METADATA");
+                //if(volumePreAmplifying != 0){
+                //  SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
+                //}
 
                 // If this is mmrs and otr, build a metadata string for it
                 if((packFormat.startsWith("otr-") || packFormat == "bcseq") && extension == "mmrs"){
@@ -1569,8 +1559,6 @@
                   }
                   otrSequence.metaData = `${finalSongNameUnsafe}\n${bank.toString(16)}\n${song.type}`;
                 }
-                
-                console.log("CHECKING BCSEQ")
 
                 // If BCSEQ add NOW the file (since we need to transform the seq), and also create the cmeta file
                 if(packFormat == "bcseq"){
@@ -1587,17 +1575,12 @@
                   var extraSafeName = finalSongName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
                   var bcseq = seqToBcseq(seq, { bank });
                   var chFlags = trackFlags(bcseq);
-                  
-                  console.log("TAGS FOR: " + song.game + " - " + song.song);
-                  console.log(song.tags);
                   var category = (song.tags ? PackerTags.toOoT3D(song.tags).join(", ") : "!Background Music");
-                  console.log(category);
                   
                   zip.file(`${folder}/${extraSafeName}.bcseq`, bcseq);
                   zip.file(`${folder}/${extraSafeName}.cmeta`, `banks    = ${bankList}\nchFlags  = ${formatTrackFlags(chFlags)}\nvolume   = 100%\ncategory = ${(song.type == "bgm" ? category : "Fanfares")}`);
                 
                 } else{
-                  console.log("Zipping file...?")
                   z64File.file(file.name, seq);
                   otrSequence.seqData = seq;
                 }

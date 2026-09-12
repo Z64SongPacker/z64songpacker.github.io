@@ -79,18 +79,12 @@
 
         // Available repos
         // These repos CANNOT be deleted by the user, they will always be available, ya like it or not!
-        // selectedRepoId: "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0",
-        /*userRepos: [
-          { id: "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0", selections: [] },
-          { id: "Japas-Jams/MM-Custom-Sequences/main", selections: [] }
-        ],*/
         // Should we put an ID also on this...? Make it a dictionary...?
         userRepos: [
-          // "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0",
           "Japas-Jams/MM-Custom-Sequences/main",
-          "CristobalPenaloza/OoT-Custom-Sequences/Custom-Music-2.0"
+          "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0"
         ],
-        selectedReposIndices: [0],
+        selectedReposIndices: [0, 1],
         selections: []
       };
 
@@ -237,6 +231,9 @@
               toast(`Repo ${repoToModify} added successfully!`);
             }
           } else{
+            // Also reset user selections, because the index list will shift!
+            // TODO: Use a better way so the user don't lose their repo selections if they remove a repo!
+            settings.selectedReposIndices = defaultSettings.selectedReposIndices;
             userRepos = userRepos.filter(r => r !== repoToModify);
             toast(`Repo ${repoToModify} removed successfully!`);
           }
@@ -255,6 +252,14 @@
             var isAvailable = settings.userRepos.some(r => r == repo);
             if(!isAvailable) settings.userRepos.push(repo);
           });
+
+          // Forced settings (for changes and updates)
+          // - Disables my fork of dj, used before the official was fully finished
+          if(settings.userRepos.includes("CristobalPenaloza/OoT-Custom-Sequences/Custom-Music-2.0")){
+            settings.userRepos = settings.userRepos.filter(r => r != "CristobalPenaloza/OoT-Custom-Sequences/Custom-Music-2.0");
+            settings.selectedReposIndices = defaultSettings.selectedReposIndices;
+          }
+
           return settings;
 
         // If we cannot load the settings, then we crate a new one with default values
@@ -470,7 +475,6 @@
           // await Promise.all(userRepos.map(async (id) => { // <- Swapped to normal for-loop to allow sequencial requests, instead of simultaneous
           for(var i = 0; i < settings.userRepos.length; i++){
             var id = settings.userRepos[i];
-
             var idSplitted = id.split("/");
             var owner = idSplitted[0];
             var repo = idSplitted[1];
@@ -602,6 +606,11 @@
           var gameIds = new Set();
           for(var selectedRepoIndex of selectedReposIndices.sort()){
             var selectedRepo = repos[selectedRepoIndex];
+            if(!selectedRepo){
+              errorToast(`Could not load repo of index ${selectedRepoIndex} of repos ${repos.map(r => r.name ?? r.repoName)}!`);
+              continue;
+            }
+
             var repoName = selectedRepo.name ?? selectedRepo.repoName;
 
             // Generate the repo link

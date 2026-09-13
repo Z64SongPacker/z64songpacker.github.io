@@ -691,7 +691,7 @@
           var musicGroups = [...new Set(database.map(s => s.game))].sort();
 
           $("#ddlFilterComposers").empty().append($("<option>", { value: "", text: "Any" }));
-          var composers = [...new Set(database.map(s => s.composers).concat(["Unknown"]).flat().filter(c => c))].sort();
+          var composers = [...new Set(database.map(s => s.composers).concat(["Unknown"]).flat().filter(c => c))].sort((a, b) => a.localeCompare(b));
           composers.forEach(composer => {
             $("#ddlFilterComposers").append($("<option>", {
               value: composer,
@@ -700,7 +700,7 @@
           });
 
           $("#ddlFilterConverters").empty().append($("<option>", { value: "", text: "Any" }));
-          var converters = [...new Set(database.map(s => s.converters).concat(["Unknown"]).flat().filter(c => c))].sort();
+          var converters = [...new Set(database.map(s => s.converters).concat(["Unknown"]).flat().filter(c => c))].sort((a, b) => a.localeCompare(b));
           converters.forEach(converter => {
             $("#ddlFilterConverters").append($("<option>", {
               value: converter,
@@ -2045,10 +2045,10 @@
                 <option value="ideal-quiet">Ideal prefer quiet</option>
                 <!-- custom ideal lufs...? -->
               </select>
-              <p class="hint volume-balancing none">Volume is set as their creator made. Songs can vary wildly in volume.</p>
-              <p class="hint volume-balancing flat">Volume is forced to a set loudness (-19 LUFS). Songs will not have dynamism, like a Spotify playlist.</p>
-              <p class="hint volume-balancing ideal-average">Volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, their loudness are averaged.</p>
-              <p class="hint volume-balancing ideal-quiet">Volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, the most quiet loudness is used.</p>
+              <p class="hint volume-balancing none">Song volume is set as their creator made. Songs can vary wildly in volume.</p>
+              <p class="hint volume-balancing flat">Song volume is forced to a set loudness (-19 LUFS for BGM and -18 LUFS for fanfares). Consistent volume for all songs.</p>
+              <p class="hint volume-balancing ideal-average">Song volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, their loudness are averaged.</p>
+              <p class="hint volume-balancing ideal-quiet">Song volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, the most quiet loudness is used.</p>
               
               <div class="form-check form-check-inline mx-0" id="fgIncludeOnlyVolumeBalancedTracks">
                 <input class="form-check-input" type="checkbox" id="cbxIncludeOnlyVolumeBalancedTracks">

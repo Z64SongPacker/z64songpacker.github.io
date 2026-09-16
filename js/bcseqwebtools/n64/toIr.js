@@ -4,8 +4,9 @@
 //   - One BCSEQ track per distinct N64 CHANNEL NUMBER. N64 channel numbers are 0..15,
 //     so this always fits BCSEQ's 16-track limit — even when a sequence has far more
 //     note *layers* than 16 (layers overlap for polyphony) or re-points a channel over
-//     time (an intro `ldchan` then a main-loop `ldchan` to the same slot; those loads
-//     are concatenated into the one track).
+//     time (an intro `ldchan` then a main-loop `ldchan` to the same slot; each load is
+//     placed at the conductor tick its `ldchan` fires, so a channel added or re-pointed
+//     mid-song enters exactly then — not dragged back to tick 0).
 //   - Each channel's layers are resolved to flat note timelines (loops unrolled by
 //     their counts, jumps/calls followed) and MERGED onto one timeline. They are then
 //     emitted with NoteWait OFF: notes starting at the same tick are stacked
@@ -112,6 +113,12 @@ export function toIr(model, opts = {}) {
   const seqVol = firstArg(model.seq, 'vol');
   const seqTl = resolveSeqTimeline(model.seq);
   const seqTempos = seqTl.tempos;
+  // Anchor each channel load at the tick its `ldchan` fires in the conductor, keyed by the
+  // load's target offset (first ldchan of a target wins). This is what lets a channel that
+  // the seq loads mid-song — or re-points to a new script partway through — start when it is
+  // actually loaded, instead of every load being laid from tick 0. See emitTrack's per-load base.
+  const loadTickByTarget = new Map();
+  for (const l of seqTl.chanLoads) if (!loadTickByTarget.has(l.target)) loadTickByTarget.set(l.target, l.tick);
   // Looping is carried over from the .seq itself (its seq-section backward jump), not a
   // user choice: if the seq loops, `loop` gives the loop-START tick (the intro before
   // it plays once) and the master period `len` (every track is padded to it so their
@@ -151,7 +158,7 @@ export function toIr(model, opts = {}) {
   for (let i = 0; i < groups.length; i++) {
     if (i > 0) push({ type: 'Label', name: trackLabel(i) });
     const loopLabel = loop ? 'loop' + i : null;
-    const looped = emitTrack(push, groups[i], seqTranspose, routeProgram, remapDrumKey, scaleTicks, i === 0 ? seqTempos : null, loop, loopLabel, seqTl.loopLen);
+    const looped = emitTrack(push, groups[i], seqTranspose, routeProgram, remapDrumKey, scaleTicks, i === 0 ? seqTempos : null, loop, loopLabel, seqTl.loopLen, loadTickByTarget);
     if (looped) push(cmd('Jump', { offset: loopLabel }));
     push(cmd('Fin', {}));
   }
@@ -209,19 +216,31 @@ function groupHasProgram(group) {
  * @param {number} masterEnd the sequence's total duration in source ticks (the seq
  *   track's clock at `end`); a non-looping track is padded to it so it does not `Fin`
  *   before the others and cut the sequence off early (see the padding at the tail)
+ * @param {Map<number,number>} loadTicks load target offset -> the conductor tick its
+ *   `ldchan` fires at; each load is anchored there (see the per-load base below)
  * @returns {boolean} whether this track looped (a loop label + Jump are warranted)
  */
-function emitTrack(push, group, seqTranspose, routeProgram, remapDrumKey, scaleTicks, tempos, loop, loopLabel, masterEnd) {
+function emitTrack(push, group, seqTranspose, routeProgram, remapDrumKey, scaleTicks, tempos, loop, loopLabel, masterEnd, loadTicks) {
   const control = collectChannelControl(group.loads[0].region);
-  // Drum channels (N64 program 0x7F) index a reordered 3DS drum kit. When a kit is
-  // active, remap the RAW note key (percussion keys index a sample table, so transpose
-  // does not apply — build note keys without it). Detection uses the RAW program.
-  const converting = control.program === N64_DRUM_PROGRAM && remapDrumKey != null;
-  const mapKey = converting ? remapDrumKey : (k) => k;
+  // Drum channels (N64 program 0x7F) index a reordered 3DS drum kit: when a kit is active
+  // their RAW note key (no transpose — percussion keys index a sample table) is remapped to
+  // the kit's 3DS slot, and a key with no slot is dropped. This is decided PER LOAD, not
+  // once for the whole track: a re-pointed channel can switch between the drum kit and a
+  // melodic instrument across its loads (BotW opens ch2 on drums, then re-points it to a
+  // trombone; ch6/ch7 do the reverse — strings then drums). A load that sets no instrument
+  // of its own inherits the previous load's program, so a drum track split across an
+  // intro+loop load (Godskin, DQ III: instr 0x7F then a load with no instr) stays drums
+  // throughout. Deciding by loads[0] alone mangled the switched section — melodic notes
+  // forced through the drum-key remap (dropped/wrong), or drum notes played as pitches.
 
-  // Build one timed event list, merging across the channel's loads. Re-pointed loads
-  // (intro then main) are laid end to end via segBase. Each load's length and its
-  // layers' start offsets come from the CHANNEL script's own timeline (its delays /
+  // Build one timed event list, merging across the channel's loads. Each load is anchored
+  // at `segBase` = the conductor tick its `ldchan` fires (loadTicks, keyed by the load's
+  // target offset), so a channel the seq loads mid-song — or re-points to a new script
+  // partway through (an intro `ldchan` then a main-loop `ldchan`) — starts exactly when the
+  // seq loads it, matching the N64 driver (which abandons whatever the channel was doing at
+  // each reload). A load whose ldchan the seq walk did not reach falls back to lying right
+  // after the previous load (fallbackBase), the old end-to-end behaviour. Each load's length
+  // and its layers' start offsets come from the CHANNEL script's own timeline (its delays /
   // ldlayer positions), not just the layer note lengths — a load may be a layer-less
   // intro (e.g. `instr; delay 288; end`) whose 288-tick delay must still advance the
   // clock, or it may load a layer partway through the channel. Volume, instrument and
@@ -233,9 +252,17 @@ function emitTrack(push, group, seqTranspose, routeProgram, remapDrumKey, scaleT
   const bendEntries = [];    // {tick, value, range} raw N64 pitch bends
   const panEntries = [];     // {tick, value} raw N64 channel pans
   const vibEntries = [];     // {tick, kind, value} raw N64 vibrato control
-  let segBase = 0;
+  let fallbackBase = 0;
+  let inheritedProgram = null; // a load with no instr of its own keeps the prior program
   for (const load of group.loads) {
-    const base = seqTranspose + (collectChannelControl(load.region).transpose || 0);
+    const anchored = loadTicks ? loadTicks.get(load.start) : undefined;
+    const segBase = anchored != null ? anchored : fallbackBase;
+    const loadControl = collectChannelControl(load.region);
+    const base = seqTranspose + (loadControl.transpose || 0);
+    // Effective program of this load (its own instr, else inherited) decides drum vs melodic.
+    const effProgram = loadControl.program != null ? loadControl.program : inheritedProgram;
+    inheritedProgram = effProgram;
+    const loadConverting = effProgram === N64_DRUM_PROGRAM && remapDrumKey != null;
     const chTl = resolveChannelTimeline(load.region);
     for (const v of chTl.vols) {
       events.push({ tick: segBase + v.tick, order: 0, ev: cmd('Volume', { value: v.value & 0xff }) });
@@ -246,10 +273,15 @@ function emitTrack(push, group, seqTranspose, routeProgram, remapDrumKey, scaleT
     for (const v of chTl.vibs) vibEntries.push({ tick: segBase + v.tick, kind: v.kind, value: v.value });
     for (const layer of load.layers) {
       const startOff = chTl.layerStart.has(layer.start) ? chTl.layerStart.get(layer.start) : 0;
-      const tl = resolveLayerTimeline(layer.region, base, converting);
-      for (const n of tl.notes) events.push({ tick: segBase + startOff + n.tick, order: 1, note: { key: n.key, vel: n.vel, dur: n.dur } });
+      const tl = resolveLayerTimeline(layer.region, base, loadConverting);
+      for (const n of tl.notes) {
+        // Drum load: remap the raw key to its 3DS kit slot now (null = no slot -> dropped
+        // at emit, where the Wait still advances so the slot becomes silence).
+        const key = loadConverting ? remapDrumKey(n.key) : n.key;
+        events.push({ tick: segBase + startOff + n.tick, order: 1, note: { key, vel: n.vel, dur: n.dur } });
+      }
     }
-    segBase += chTl.endTick;
+    fallbackBase = segBase + chTl.endTick;
   }
   if (tempos) for (const t of tempos) events.push({ tick: t.tick, order: 0, ev: cmd('Tempo', { value: t.value }) });
 
@@ -337,7 +369,7 @@ function emitTrack(push, group, seqTranspose, routeProgram, remapDrumKey, scaleT
     if (e.loopMark) { push({ type: 'Label', name: loopLabel }); continue; }
     if (e.program !== undefined) { emitProgram(e.program); continue; }
     if (!e.note) { push(e.ev); continue; }
-    const key = mapKey(e.note.key);
+    const key = e.note.key; // already drum-remapped per load (null = drop, no 3DS slot)
     // Note duration is floored at 1 tick. A source note with delay 0 (immediately
     // overtaken on N64) yields dur 0, which on 3DS means "no gate" -> the note never
     // releases and rings forever. Real OoT3D .bcseq files never use a 0-tick note (their
@@ -437,13 +469,16 @@ function resolveChannelTimeline(region) {
  * (`loopStartTick` — everything before it is a one-shot intro), and the final clock
  * (`loopLen`, the master period every track loops at). A seq that ends with `end`
  * instead of a backward jump does not loop. Delays/loops/calls are followed; branches
- * are treated as not-taken.
+ * are treated as not-taken. Also records each `ldchan`'s conductor tick (`chanLoads`) so
+ * a channel load can be anchored where the seq actually loads it (see emitTrack).
  * @param {import('./reader.js').RegionModel} region
- * @returns {{tempos:{tick:number,value:number}[], loopLen:number, loopStartTick:number, hasLoop:boolean}}
+ * @returns {{tempos:{tick:number,value:number}[], loopLen:number, loopStartTick:number,
+ *   hasLoop:boolean, chanLoads:{tick:number,num:number,target:number}[]}}
  */
 function resolveSeqTimeline(region) {
   const cmds = region.cmds;
   const tempos = [];
+  const chanLoads = []; // {tick,num,target} — the conductor tick each ldchan fires at
   const tickAt = new Map(); // pc -> clock, to resolve the backward jump's target tick
   let loopStartTick = 0;
   let hasLoop = false;
@@ -461,6 +496,9 @@ function resolveSeqTimeline(region) {
       case 'delay1': clock += 1; break;
       case 'delay': clock += c.args[0]; break;
       case 'tempo': tempos.push({ tick: clock, value: c.args[0] }); break;
+      case 'ldchan': case 'rldchan':
+        if (c.target != null) chanLoads.push({ tick: clock, num: c.packed, target: c.target });
+        break;
       case 'loop': loopStack.push({ backTo: pc + c.size, count: c.args[0] || 256 }); break;
       case 'loopend': {
         const top = loopStack[loopStack.length - 1];
@@ -481,7 +519,7 @@ function resolveSeqTimeline(region) {
     }
     pc = next;
   }
-  return { tempos, loopLen: clock, loopStartTick, hasLoop };
+  return { tempos, loopLen: clock, loopStartTick, hasLoop, chanLoads };
 }
 
 /**

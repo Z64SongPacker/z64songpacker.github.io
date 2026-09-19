@@ -2,6 +2,8 @@
 title: Z64 Song Packer | Guide for approvers
 ---
 
+# Guide for approvers
+
 So, you want to approve for a music repository.
 Thank you ***so much*** for your help!
 
@@ -14,14 +16,13 @@ Altough in the end you are probably going to just push some buttons, it's ***ver
 
 So, to answer that, **we need to talk about GitHub**.
 
-Here is a guide with the general gist of the packer internals, and explataions of GitHub's lingo. Please, give it a read:
+Here is a guide with the basic explanations of GitHub's lingo, and how it works. Please, give it a read!
 
-[Z64 Song Packer | Why use Github? How does it work?](github.html)
+[Z64 Song Packer - Why use Github? How does it work?](github.html)
 
-You read it?
+You read it? You sure?
 
-Good!
-Now, to the task at hand...
+Amazing! Now, to the task at hand...
 
 ## The approval process
 
@@ -161,15 +162,6 @@ Now it's the time to **merge** the changes to the repository! You'll see that yo
 
 ---
 
-That should be all you need to know!
+That should be all you need to know for now!
 
 Again, thank you very much for your help!
-
-
-
-
-
-
-
-
-

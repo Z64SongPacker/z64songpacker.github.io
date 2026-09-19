@@ -1,5 +1,5 @@
 ---
-title: Z64 Song Packer | How to get the loudness (LUFS) of your song
+title: Z64 Song Packer - How to get the loudness (LUFS) of your song
 ---
 
 # How to get the loudness (LUFS) of your song

@@ -1,5 +1,5 @@
 ---
-title: Z64 Song Packer | Guide for approvers
+title: Z64 Song Packer - Guide for approvers
 ---
 
 # Guide for approvers
@@ -116,27 +116,29 @@ This is the entry that is going to enter the database for the repository. Is in 
 
 * **song**: The name of the song. Make sure to use the ***official name***, or it's most common one. If the song is already on the packer, a number should be appended between brackets to differentiate it (e.g. `[2]`).
 
-* **composers**: A list of composers, in array format (e.g. `[ "Composer 1", "Composer 2" ]`). Be sure that the original composer is included, and it's aranger  if the song is a remix. Make sure the are no typos/case differences in the names. If not, the filter will have duplicated entries
+* **composers**: A list of composers, in array format (e.g. `[ "Composer 1", "Composer 2" ]`). Be sure that the original composer is included, and it's aranger  if the song is a remix. Make sure the are no typos/case differences in the names. If not, the filter will have duplicated entries.
 
 * **converters**: A list of converters, in array format. The converter is *who* did the port to Z64 format. The same rules for converters apply here.
 
 * **type**: can be `bgm` or `fanfare`. Make sure that it matches what the song is.
 
-* **lufs**: the value of the loudness measuring of the song. Follow the [lufs guide](lufs.html) if you want re-record the song to confirm the value is correct. Songs usually fit in the range of -20 to -10, so something higher or lower is suspicious... probably there is a wrong measuring or bad mixing. **Follow the guidelines in the appendix on the lufs guide** to make sure the mixing is good quality.
+* **lufs**: the value of the loudness measuring of the song. Follow the [lufs guide](lufs.html) if you want re-record the song to confirm the value is correct. Songs usually fit in the range of -20 to -10, so something higher or lower is suspicious... probably there is a wrong measuring or bad mixing. **Follow the guidelines in the appendix on the lufs guide** to make sure the mixing is good quality (see [Appendix: A bit more about mixing and volume balancing](lufs.html#appendix-a-bit-more-about-mixing-and-volume-balancing)).
 
 * **categories**: the internal list of categories of the song. Make sure the contributor mindfully picked their categories. As a rule of thumb, **allow only a max of 1 or 2 *general categories*** (no "this song can appear anywhere"). Any amount of *specific categories* is ok.
 
 ## What to do if something is wrong
 
-If you pickup on something, make it known!
-
 ### If the problem is fixable...
 
-**Make a comment!** Indicate the contributor what needs to be fixed in order to be approved. Be detailed and helpful if they don't know exactly what to do or how to do it.
+**Make a comment**. Indicate the contributor what needs to be fixed in order to be approved. Be detailed and helpful if they don't know exactly what to do or how to do it.
 
 Fixable problems is stuff like: wrong song name, wrong game name, wrong composers, broken type, bad categories, lufs issues, compatibility issues.
 
+Also, ***use your musical sense***. Compare the song with the original source. If something sounds bad or wrong, probably needs fixing.
+
 > DON'T close the pull request if it just needs fixing!
+
+---
 
 ### If the problems is NOT fixbable...
 

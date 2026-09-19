@@ -1,5 +1,5 @@
 ---
-title: Z64 Song Packer | Why use Github? How does it work?
+title: Z64 Song Packer - Why use Github? How does it work?
 ---
 
 # Why use Github? How does it work?

@@ -77,7 +77,7 @@ The diff will show any lines added to a file on green, and any lines deleted on 
 
 In this example, a bunch of lines were added to the `z64songs.json` file.
 
-> Binary changes (like changes made to ootrs, mmrs, or mp3 files) are *never shown*. So, if you want to check them, you need to **download** those files. You can do that by pressing `3 dots > View File > 3 dots > Download`. Conveluted, but GitHub is dumb sometimes.
+> Binary changes (like changes made to ootrs, mmrs, or mp3 files) are *never shown*. So, if you want to check them, you need to **download** those files. You can do that by pressing `3 dots > View File > 3 dots > Download`. Convoluted, but GitHub is dumb sometimes.
 
 
 ## The database format
@@ -116,7 +116,7 @@ This is the entry that is going to enter the database for the repository. Is in 
 
 * **song**: The name of the song. Make sure to use the ***official name***, or it's most common one. If the song is already on the packer, a number should be appended between brackets to differentiate it (e.g. `[2]`).
 
-* **composers**: A list of composers, in array format (e.g. `[ "Composer 1", "Composer 2" ]`). Be sure that the original composer is included, and it's aranger  if the song is a remix. Make sure the are no typos/case differences in the names. If not, the filter will have duplicated entries.
+* **composers**: A list of composers, in array format (e.g. `[ "Composer 1", "Composer 2" ]`). Be sure that the original composer is included (and it's arranger if the song is a remix). Make sure the are no typos/case differences in the names. If not, the filter will have duplicated entries.
 
 * **converters**: A list of converters, in array format. The converter is *who* did the port to Z64 format. The same rules for converters apply here.
 

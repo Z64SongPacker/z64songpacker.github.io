@@ -74,6 +74,10 @@ const SEQ_HEADER = [
 
 export class SeqUtils{
 
+    static isSeqExtension(fileName){
+        return fileName.endsWith(".seq") || fileName.endsWith(".zseq") || fileName.endsWith(".aseq");
+    }
+
     static getCommandDefinition(id){
         for(const c of SEQ_HEADER){
             var cid = c[1];
@@ -89,6 +93,7 @@ export class SeqUtils{
 
     static seqReader(seq, processCommandCallback = null, verbose = false){
         var cursor = 0;
+        var commands = [];
         do{
             // Get the command by it's ID
             var id = seq[cursor];
@@ -147,11 +152,14 @@ export class SeqUtils{
 
             // Print in a similar way to seq64
             if(verbose) console.log(commandString);
+            commands.push(commandString);
 
             // If we find the end, then stop searching the header
             if(id == 0xFF) break;
 
         } while(cursor < seq.length);
+
+        return commands;
     }
 
 

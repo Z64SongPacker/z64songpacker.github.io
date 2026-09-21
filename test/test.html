@@ -11,21 +11,45 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
     <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/themes/smoothness/jquery-ui.css" />
     <script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js"></script>
   </head>
   <body>
     </script>
     <script type="module">
       import { SeqUtils } from "../js/sequtils.js";
+      import { PackerUtils } from "../js/packerutils.js";
 
       async function testLocalSeqFile(path){
+        console.log("Testing file " + path);
         var seq = new Uint8Array(await (await fetch(path)).arrayBuffer());
         SeqUtils.seqReader(seq, null, true);
       }
 
+      
+
       $(function(){
-        testLocalSeqFile("Dark Relam.seq");
+        //testLocalSeqFile("Dark Relam.seq");
         //testLocalSeqFile("20.seq");
+
+        //await testLocalSeqFile("Dig Dig [fixed].zseq");
+        //await testLocalSeqFile("Dig Dig [looping].zseq");
+
+        $("#fileUpload").on("change", async function(event){
+          var data = await PackerUtils.extractFileData(event.target.files[0]);
+
+          var seqOutput = SeqUtils.seqReader(data.seq);
+          console.log(seqOutput);
+          $("#txtSequence").text(seqOutput.join("\n"));
+        });
       });
     </script>
+
+    <input id="fileUpload" type="file" class="form-control" accept=".ootrs,.mmrs" />
+
+    <p id="txtResult"></p>
+
+    <p id="txtSequence" style="white-space: pre-line;"></p>
+    
   </body>
 </html>

@@ -1513,6 +1513,15 @@
                 // Pretty sure using uint8array requires compatibility from the browser...
                 // TODO: Check if it works in other browsers than chrome
                 var seq = await file.async("uint8array");
+
+                // DEBUG: Test files for issues!
+                if(song.type == "fanfare"){
+                  SeqUtils.seqReader(seq, function(command, value, cursor){
+                    if(command == 0xFB){
+                      console.warn(`WARNING: Jump command found in fanfare: ${fileName}`);
+                    }
+                  });
+                }
                 
                 // Check if it's not duplicated... skip if it is
                 // TODO: Maybe allow the user to select which one to use...?

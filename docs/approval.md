@@ -124,7 +124,7 @@ This is the entry that is going to enter the database for the repository. Is in 
 
 * **lufs**: the value of the loudness measuring of the song. Follow the [lufs guide](lufs.html) if you want re-record the song to confirm the value is correct. Songs usually fit in the range of -20 to -10, so something higher or lower is suspicious... probably there is a wrong measuring or bad mixing. **Follow the guidelines in the appendix on the lufs guide** to make sure the mixing is good quality (see [Appendix: A bit more about mixing and volume balancing](lufs.html#appendix-a-bit-more-about-mixing-and-volume-balancing)).
 
-* **categories**: the internal list of categories of the song. Make sure the contributor mindfully picked their categories. As a rule of thumb, **allow only a max of 1 or 2 *general categories*** (no "this song can appear anywhere"). Any amount of *specific categories* is ok.
+* **categories**: the internal list of categories of the song. Make sure the contributor mindfully picked their categories. As a rule of thumb, is recommended to have between **1 to 4 max *general categories*** (prevent "this song can appear anywhere" since the song could appear way to much compared to others, or also could have issues with volume balancing). **Any amount of *specific categories* is ok**. Of course, all of this dependes on a case by case basis.
 
 ## What to do if something is wrong
 

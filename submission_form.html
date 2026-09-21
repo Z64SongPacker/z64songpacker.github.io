@@ -119,12 +119,6 @@
       // Modifying:
       var songToEdit = undefined;
 
-      console.log("TESTS");
-      console.log(SeqUtils.convertIfRomanNumeral("I"));
-      console.log(SeqUtils.convertIfRomanNumeral("II"));
-      console.log(SeqUtils.convertIfRomanNumeral("III"));
-      console.log(SeqUtils.convertIfRomanNumeral("IV"));
-
       // Custom octokit to prevent error, abuses, and rate limiting
       const MyOctokit = Octokit.plugin(retry, throttling);
       function buildOctokit(){

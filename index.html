@@ -1168,7 +1168,7 @@
         previewList.forEach(preview => {
           // If it's local, grab it from our repo!
           if(!preview.startsWith("https://")){
-            preview = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.previews}/${song.preview}`.replaceAll("//", "/");
+            preview = buildGitHubDownloadLink(selectedRepo.repoOwner, selectedRepo.repoName, selectedRepo.repoDefaultBranch, `${selectedRepo.previews}/${song.preview}`);
           }
 
           // Load some metadata...
@@ -1288,6 +1288,13 @@
 
       // ------------- DOWNLOADS --------------
 
+      function buildGitHubDownloadLink(owner, name, branch, filePath){
+        var link;
+        if(filePath.includes(",")) link = `cdn.jsdelivr.net/gh/${owner}/${name}@${branch}/${filePath}`;
+        else link = `raw.githubusercontent.com/${owner}/${name}/${branch}/${filePath}`;
+        return "https://" + link.replaceAll("//", "/");
+      }
+
       async function downloadSingleFile(song){
         showLoadingOverlay();
         var extension = song.file.split('.').pop();
@@ -1297,7 +1304,7 @@
         // Fetch the single file. This is slow, but MUCH faster that bringing the full binaries zip
         // Although, now it doesnt work... >:(
         var selectedRepo = repos[song.repoIndex];
-        var fileLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/${selectedRepo.binaries}/${song.file}`.replaceAll("//", "/");
+        var fileLink = buildGitHubDownloadLink(selectedRepo.repoOwner, selectedRepo.repoName, selectedRepo.repoDefaultBranch, `${selectedRepo.binaries}/${song.file}`);
         console.log("Downloading... [" + fileLink + "]")
         var fileResponse = await githubFetch(fileLink);
         if(fileResponse.ok){

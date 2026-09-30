@@ -435,6 +435,7 @@
       // MAIN LOADING
       
       async function init(){
+        return
         // We don't need auth for the stuff we will be doing here...
         showLoadingOverlay();
 
@@ -2119,6 +2120,16 @@
       </button>
       <span class="mx-1 opacity-25">|</span>
 
+      <button type="button" data-bs-toggle="modal" data-bs-target="#modalPresetSelection" class="btn border-0 px-2">
+        <div class="row g-2">
+          <div class="col mb-0">
+            <span id="lbRepoName">Custom</span>
+            <i class="fa-solid fa-caret-down"></i>
+          </div>
+        </div>
+      </button>
+      <span class="mx-1 opacity-25">|</span>
+
       <i class="fa-brands fa-lg fa-github nav-link ms-2 mt-1" style="cursor: pointer;" title="View repository on GitHub" id="btnViewRepositoryOnGithub"></i>
       <i class="fa-solid fa-lg fa-save nav-link ms-3 mt-1" style="cursor: pointer;" title="Save selections" id="btnSaveSelections"></i>
       <i class="fa-solid fa-lg fa-moon nav-link ms-3 mt-1" style="cursor: pointer;" title="Theme" id="btnTheme"></i>
@@ -2493,6 +2504,78 @@
       </div>
     </div>
 
+
+    <!-- PRESET SELECTION -->
+    <div class="modal fade" id="modalPresetSelection" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h1 class="modal-title fs-5">Select which randomizer you will be playing</h1>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>Select a randommizer from the list, and the packer will set optimized settings!</p>
+
+            <div class="row g-2">
+
+              <div class="col-3">
+                <button class="btn btn-search">
+                  <img src="https://wiki.ootrandomizer.com/images/ootr-logo_sm.png">
+                  <b>Ocarina of Time Randomizer</b>
+                </button>
+              </div>
+
+              <div class="col-3">
+                <button class="btn btn-search">
+                  <img src="https://mmrandomizer.com/img/logo/full/png/mm-randomizer-logo_md.png">
+                  <b>Majora's Mask Randomizer</b>
+                </button>
+              </div>
+
+              <div class="col-3">
+                <button class="btn btn-search">
+                  <img class="mb-2" src="https://ootmm.com/assets/logo-BwfJkge3.png">
+                  <b>OoTMM</b>
+                </button>
+              </div>
+
+              <div class="col-3">
+                <button class="btn btn-search">
+                  <img class="py-2" src="https://avatars.githubusercontent.com/u/170279347">
+                  <b>Majora's Mask Recompiled</b>
+                </button>
+              </div>
+
+              <div class="col-3">
+                <button class="btn btn-search">
+                  <img class="mb-2" src="https://www.harbourmasters.org/icons/games/ShipOfHarkinian.webp">
+                  <b>Ship of Harkinian</b>
+                </button>
+              </div>
+
+              <div class="col-3">
+                <button class="btn btn-search">
+                  <img class="mb-2" src="https://www.harbourmasters.org/icons/games/2Ship2Hakinian.webp">
+                  <b>2Ship2Hakinian</b>
+                </button>
+              </div>
+
+              <div class="col-3">
+                <button class="btn btn-search">
+                  <!--<img class="py-2 mb-2" src="https://cdn.discordapp.com/icons/776680929221279784/203335ba622e2e38b448d437f9da5381.webp">-->
+                  <img class="py-2 mb-2" src="https://raw.githubusercontent.com/gamestabled/OoT3D_Randomizer/refs/heads/main/icon.png">
+                  <b>OoT3D Randomizer</b>
+                </button>
+              </div>
+
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
   </body>
 </html>

@@ -52,6 +52,8 @@
       import { PackerTags } from "./js/packertags.js";
       import { SeqUtils } from "./js/sequtils.js";
       import { packOtr } from './js/otrwebtools/js/otrPacker.js';
+      import { DEFAULT_SETTINGS, PRESETS } from './js/presets.js';
+      
       import { readSseq, writeSseq, readBcseq, writeBcseq, seqToBcseq, trackFlags, formatTrackFlags, BANKS } from './js/bcseqwebtools/index.js';
       import YAML from 'yaml';
 
@@ -59,25 +61,49 @@
       // TODO: ADD DISCORD FRIENDLY FORMAT FOR SUBMISSION COMMENTS FOR PRS 
 
       var defaultSettings = {
-        // Default options
+        // Main
         darkTheme: true,
         autosaveSelections: false,
         showDMCACriticalTracks: false,
         githubFetchDelay: 1250,
+        preset: "", // <-- This 
+
+        // Layout
         isListView: true,
         viewComposers: false,
         viewConverters: false,
         viewCategories: false,
         viewFormat: true,
+        viewSourceRepository: true,
         viewNotes: true,
+
+        // Export
         maintainFolderStructure: false,
-        useShortGameNames: false,
+        includeSelectionsAndSettings: false,
+        includeGameLogos: false,
+        excludeUnsafeTracks: false,
+        excludeDuplicates: true,
+        gameNamesFormat: "",
         volumePreAmplifying: 0,
         volumeBalancing: "flat",
         includeOnlyVolumeBalancedTracks: true,
         packFormat: "zip",
 
-        // Available repos
+        // Filters
+        filterGameName: "",
+        filterSongName: "",
+        filterSequenceType: "",
+        filterMusicGroups: "",
+        filterComposer: "",
+        filterConverter: "",
+        showFormatVanilla: true,
+        showFormatOoTCrossBank: true,
+        showFormatMMCrossBank: true,
+        showFormatCustomBank: true,
+        showFormatCustomSamples: true,
+        showFormatFormmask: true,
+
+        // Repo & selections
         // These repos CANNOT be deleted by the user, they will always be available, ya like it or not!
         // Should we put an ID also on this...? Make it a dictionary...?
         userRepos: [
@@ -97,6 +123,7 @@
       var currentSongList = [];
       var filteredDatabase = [];
       var autosaveSelections = false;
+      var currentPreset = "none";
       var showDMCACriticalTracks = false;
       var isListView = true;
       var defaultAvatarUrl = "https://github.githubassets.com/images/gravatars/gravatar-user-420.png?size=32";
@@ -183,12 +210,15 @@
       }
       function saveSettingsToStorage(repoToModify = "", addNewRepo = true){
         var settings = getSettings();
-
-        // Start with the user options
+        
+        // Main
         settings.darkTheme = $("html").attr("data-bs-theme") == "dark";
         settings.autosaveSelections = autosaveSelections; 
         settings.showDMCACriticalTracks = showDMCACriticalTracks;
         settings.githubFetchDelay = parseInt(parseFloat($("#rgGithubFetchDelay").val()) * 1000);
+        settings.preset = currentPreset;
+
+        // Layout
         settings.isListView = $("#ddlLayout").val() == "list";
         settings.viewComposers = $("#cbxViewComposers").is(":checked");
         settings.viewConverters = $("#cbxViewConverters").is(":checked");
@@ -197,8 +227,10 @@
         settings.viewSourceRepository = $("#cbxViewSourceRepository").is(":checked");
         settings.viewNotes = $("#cbxViewNotes").is(":checked");
 
-        settings.maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
+        // Export
         settings.includeSelectionsAndSettings = $("#cbxIncludeSelectionsAndSettings").is(":checked");
+        settings.maintainFolderStructure = $("#cbxMaintainFolderStructure").is(":checked");
+        settings.includeGameLogos = $("#cbxIncludeGameLogos").is(":checked");
         settings.excludeUnsafeTracks = $("#cbxExcludeUnsafeTracks").is(":checked");
         settings.excludeDuplicates = $("#cbxExcludeDuplicates").is(":checked");
         settings.gameNamesFormat = $("#ddlGameNamesFormat").val();
@@ -431,24 +463,31 @@
       }
 
 
-
       // MAIN LOADING
+
+      function loadPresets(){
+        //for // TODO: <---
+        // panelPresets
+      }
       
       async function init(){
-        return
         // We don't need auth for the stuff we will be doing here...
         showLoadingOverlay();
 
         try{
+          // Load the user's settings!
           var settings = getSettings();
 
-          // Load the user's settings!
+          // Main
           $("html").attr("data-bs-theme", settings.darkTheme ? "dark" : "light");
           $("#cbxAutosaveSelections").prop('checked', settings.autosaveSelections);
           autosaveSelections = settings.autosaveSelections;
           $("#cbxShowDMCACriticalTracks").prop('checked', settings.showDMCACriticalTracks);
           $("#rgGithubFetchDelay").val((settings.githubFetchDelay || 1250) * 0.001).trigger("input");
           showDMCACriticalTracks = settings.showDMCACriticalTracks;
+          currentPreset = settings.preset || "none";
+
+          // Layout
           $("#ddlLayout").val(settings.isListView ? "list" : "grid");
           $("#cbxViewComposers").prop('checked', settings.viewComposers);
           $("#cbxViewConverters").prop('checked', settings.viewConverters);
@@ -457,8 +496,10 @@
           $("#cbxViewSourceRepository").prop('checked', settings.viewSourceRepository);
           $("#cbxViewNotes").prop('checked', settings.viewNotes);
 
-          $("#cbxMaintainFolderStructure").prop('checked', settings.maintainFolderStructure);
+          // Export
           $("#cbxIncludeSelectionsAndSettings").prop('checked', settings.includeSelectionsAndSettings);
+          $("#cbxMaintainFolderStructure").prop('checked', settings.maintainFolderStructure);
+          $("#cbxIncludeGameLogos").prop('checked', settings.includeGameLogos);
           $("#cbxExcludeUnsafeTracks").prop('checked', settings.excludeUnsafeTracks);
           $("#cbxExcludeDuplicates").prop("checked", settings.excludeDuplicates)
           $("#ddlGameNamesFormat").val(settings.gameNamesFormat || "dynamic").trigger("change");
@@ -466,6 +507,20 @@
           $("#ddlVolumeBalancing").val(settings.volumeBalancing || "none").trigger("change");
           $("#cbxIncludeOnlyVolumeBalancedTracks").prop("checked", settings.includeOnlyVolumeBalancedTracks);
           $("#ddlPackFormat").val(settings.packFormat || "zip");
+
+          // Apply the preset to the filters, always do it on first load
+          // The other options the user can change them if they want :P
+          console.log(currentPreset);
+          if(currentPreset != "none"){
+            var preset = PRESETS[currentPreset];
+            console.log(preset);
+            $("#cbxFilterIsOOTRS").prop("checked", preset.showFormatOOTRS);
+            $("#cbxFilterIsMMRS").prop("checked", preset.showFormatMMRS);
+            $("#cbxFilterVanillaBank").prop("checked", preset.showFormatVanilla);
+            $("#cbxFilterCustomBank").prop("checked", preset.showFormatCustomBank);
+            $("#cbxFilterCustomSamples").prop("checked", preset.showFormatCustomSamples);
+            $("#cbxFilterFormmask").prop("checked", preset.showFormatFormmask);
+          }
 
           // Now load their selections
           // Settings by default add the default repos together with the user-defined ones
@@ -535,6 +590,7 @@
 
           // Finally, load the repos!
           await loadRepo();
+          loadPresets();
           hideLoadingOverlay();
 
         } catch(e){
@@ -753,9 +809,12 @@
         $("#ddlFilterMusicGroups").val("");
         $("#ddlFilterComposers").val("");
         $("#ddlFilterConverters").val("");
+        $("#cbxFilterIsMMRS").prop("checked", true);
+        $("#cbxFilterIsOOTRS").prop("checked", true);
         $("#cbxFilterVanillaBank").prop('checked', true);
         $("#cbxFilterCustomBank").prop('checked', true);
         $("#cbxFilterCustomSamples").prop('checked', true);
+        $("#cbxFilterFormmask").prop('checked', true);
         applyFilters();
       }
       function applyFilters(){
@@ -765,6 +824,8 @@
         var filterMusicGroups = $("#ddlFilterMusicGroups").val();
         var filterComposers = $("#ddlFilterComposers").val(); // TODO: Convert these ones into select multiples... with chosen
         var filterConverters = $("#ddlFilterConverters").val();
+        var filterIsMMRS = $("#cbxFilterIsMMRS").val();
+        var filterIsOOTRS = $("#cbxFilterIsOOTRS").val();
         var filterVanillaBank = $("#cbxFilterVanillaBank").is(":checked");
         var filterCustomBank = $("#cbxFilterCustomBank").is(":checked");
         var filterCustomSamples = $("#cbxFilterCustomSamples").is(":checked");
@@ -781,8 +842,11 @@
                  (filterMusicGroups ? (s.categories ?? []).includes(filterMusicGroups) : true) &&
                  (filterComposers ? (s.composers ?? []).includes(filterComposers) : true) &&
                  (filterConverters ? (s.converters ?? []).includes(filterConverters) : true) &&
-
-                 ((filterCustomSamples ? s.usesCustomSamples : false) ||
+                 
+                 // TODO: ADD CROSS BANK COMPATIBILITY
+                 ((filterIsMMRS ? (s.file.endsWith(".mmrs") || s.isCrossGame) : false) ||
+                 (filterIsOOTRS ? (s.file.endsWith(".ootrs") || s.isCrossGame) : false) ||
+                 (filterCustomSamples ? s.usesCustomSamples : false) ||
                  (filterCustomBank ? (s.usesCustomBank && !s.usesCustomSamples) : false) ||
                  (filterVanillaBank ? (!s.usesCustomSamples && !s.usesCustomBank) : false) ||
                  (filterFormmask ? s.usesFormmask : false) ||
@@ -1682,6 +1746,20 @@
         $("#btnResetFilters").on("click", resetFilters);
         $("#btnAddRepository").on("click", addRepository);
 
+        $("[id^='btnSelectPreset-']").on("click", function(){
+          currentPreset = $(this).attr("id").split("-")[1];
+          var preset = PRESETS[currentPreset];
+
+          // Apply the preset
+          $("#ddlPackFormat").val(preset.packFormat);
+          $("#cbxMaintainFolderStructure").prop('checked', preset.maintainFolderStructure);
+          $("#cbxIncludeGameLogos").prop('checked', preset.includeGameLogos);
+          $("#ddlGameNamesFormat").val(preset.gameNamesFormat);
+
+          saveSettings();
+          init();
+        });
+
         $("#cbxSelectAll").on("change", function(){
           var checkedState = this.checked;
           console.log("Checkedstate " + checkedState);
@@ -2022,6 +2100,12 @@
             </li>
             <li>
               <div class="form-check form-check-inline ms-3">
+                <input class="form-check-input" type="checkbox" id="cbxIncludeGameLogos">
+                <label class="form-check-label" for="cbxIncludeGameLogos">Include game logos</label>
+              </div>
+            </li>
+            <li>
+              <div class="form-check form-check-inline ms-3">
                 <input class="form-check-input" type="checkbox" id="cbxIncludeSelectionsAndSettings">
                 <label class="form-check-label" for="cbxIncludeSelectionsAndSettings">Include selections and settings</label>
               </div>
@@ -2123,7 +2207,8 @@
       <button type="button" data-bs-toggle="modal" data-bs-target="#modalPresetSelection" class="btn border-0 px-2">
         <div class="row g-2">
           <div class="col mb-0">
-            <span id="lbRepoName">Custom</span>
+            <img src="">
+            <span id="lbRepoName">No preset</span>
             <i class="fa-solid fa-caret-down"></i>
           </div>
         </div>
@@ -2435,6 +2520,14 @@
             <div class="form-group col-12 mb-3">
               <label>Format:</label>
               <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="cbxFilterIsOOTRS" checked>
+                <label class="form-check-label" for="cbxFilterIsOOTRS">Is OOTRS (includes cross-game MMRS)</label>
+              </div>
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="cbxFilterIsMMRS" checked>
+                <label class="form-check-label" for="cbxFilterIsMMRS">Is MMRS (includes cross-game OOTRS)</label>
+              </div>
+              <div class="form-check">
                 <input type="checkbox" class="form-check-input" id="cbxFilterVanillaBank" checked>
                 <label class="form-check-label" for="cbxFilterVanillaBank">Uses vanilla bank only</label>
               </div>
@@ -2510,64 +2603,71 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h1 class="modal-title fs-5">Select which randomizer you will be playing</h1>
+            <h1 class="modal-title fs-5">Select the randomizer you will be playing!</h1>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
-            <p>Select a randommizer from the list, and the packer will set optimized settings!</p>
+            <p class="opacity-50">
+              The packer will adapt and set optimized settings for the game you select.
+              Pick <b>None</b> if you don't plan on using any game, or just want to listen!
+            </p>
 
-            <div class="row g-2">
-
+            <div class="row g-2" id="panelPresets">
               <div class="col-3">
-                <button class="btn btn-search">
+                <button id="btnSelectPreset-ootr" class="btn btn-search" style="--btn-search-bg-color: rgba(16, 36, 57, .4)">
                   <img src="https://wiki.ootrandomizer.com/images/ootr-logo_sm.png">
                   <b>Ocarina of Time Randomizer</b>
                 </button>
               </div>
 
               <div class="col-3">
-                <button class="btn btn-search">
+                <button id="btnSelectPreset-mmr" class="btn btn-search" style="--btn-search-bg-color: rgba(56, 4, 51, .3)">
                   <img src="https://mmrandomizer.com/img/logo/full/png/mm-randomizer-logo_md.png">
                   <b>Majora's Mask Randomizer</b>
                 </button>
               </div>
 
               <div class="col-3">
-                <button class="btn btn-search">
+                <button id="btnSelectPreset-ootmm" class="btn btn-search" style="--btn-search-bg-color: rgba(34, 55, 142, .3)">
                   <img class="mb-2" src="https://ootmm.com/assets/logo-BwfJkge3.png">
                   <b>OoTMM</b>
                 </button>
               </div>
 
               <div class="col-3">
-                <button class="btn btn-search">
+                <button id="btnSelectPreset-mmrecomp" class="btn btn-search" style="--btn-search-bg-color: rgba(22, 181, 195, .2)">
                   <img class="py-2" src="https://avatars.githubusercontent.com/u/170279347">
                   <b>Majora's Mask Recompiled</b>
                 </button>
               </div>
 
               <div class="col-3">
-                <button class="btn btn-search">
+                <button id="btnSelectPreset-soh" class="btn btn-search" style="--btn-search-bg-color: rgba(85, 150, 82, .25)">
                   <img class="mb-2" src="https://www.harbourmasters.org/icons/games/ShipOfHarkinian.webp">
                   <b>Ship of Harkinian</b>
                 </button>
               </div>
 
               <div class="col-3">
-                <button class="btn btn-search">
+                <button id="btnSelectPreset-s2h2" class="btn btn-search" style="--btn-search-bg-color: rgba(155, 99, 183, .3)">
                   <img class="mb-2" src="https://www.harbourmasters.org/icons/games/2Ship2Hakinian.webp">
                   <b>2Ship2Hakinian</b>
                 </button>
               </div>
 
               <div class="col-3">
-                <button class="btn btn-search">
-                  <!--<img class="py-2 mb-2" src="https://cdn.discordapp.com/icons/776680929221279784/203335ba622e2e38b448d437f9da5381.webp">-->
-                  <img class="py-2 mb-2" src="https://raw.githubusercontent.com/gamestabled/OoT3D_Randomizer/refs/heads/main/icon.png">
+                <button id="btnSelectPreset-oot3dr" class="btn btn-search" style="--btn-search-bg-color: rgba(222, 187, 24, .2)">
+                  <img class="py-2 mb-2" src="img/oot3d-randomizer-icon-srgb.png">
                   <b>OoT3D Randomizer</b>
                 </button>
               </div>
 
+              <div class="col-3">
+                <button id="btnSelectPreset-none" class="btn btn-search">
+                  <b>None</b>
+                  <div class="opacity-75">Show all songs with default settings</div>
+                </button>
+              </div>
             </div>
           </div>
           <div class="modal-footer">

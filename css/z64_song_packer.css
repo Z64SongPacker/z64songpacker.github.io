@@ -178,7 +178,9 @@
   width: 100%;
 }
 .btn-search:hover{
+  --btn-search-bg-color: rgba(255, 255, 255, .1);
   border: var(--bs-border-width) solid var(--bs-highlight-color);
+  background-color: var(--btn-search-bg-color);
 }
 .btn-search img {
   width: 100%;

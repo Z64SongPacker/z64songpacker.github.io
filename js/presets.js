@@ -96,6 +96,7 @@ export const PRESETS = {
     "ootmm": {
         fullName: "OoTMM",
         logo: "https://ootmm.com/assets/logo-BwfJkge3.png",
+        logoClass: "mb-2",
         color: "rgba(34, 55, 142, .3)",
         packFormat: "zip",
         maintainFolderStructure: false,
@@ -112,6 +113,7 @@ export const PRESETS = {
         fullName: "Majora's Mask Recompiled",
         shortName: "MM Recomp",
         logo: "https://avatars.githubusercontent.com/u/170279347",
+        logoClass: "py-2",
         color: "rgba(22, 181, 195, .2)",
         packFormat: "zip",
         maintainFolderStructure: true,
@@ -128,6 +130,7 @@ export const PRESETS = {
         fullName: "Ship of Harkinian",
         shortName: "SoH",
         logo: "https://www.harbourmasters.org/icons/games/ShipOfHarkinian.webp",
+        logoClass: "mb-2",
         color: "rgba(85, 150, 82, .25)",
         packFormat: "otr-soh",
         maintainFolderStructure: false,
@@ -144,6 +147,7 @@ export const PRESETS = {
         fullName: "2Ship2Hakinian",
         shortName: "2S2H",
         logo: "https://www.harbourmasters.org/icons/games/2Ship2Hakinian.webp",
+        logoClass: "mb-2",
         color: "rgba(155, 99, 183, .3)",
         packFormat: "otr-2s2h",
         maintainFolderStructure: false,
@@ -160,6 +164,7 @@ export const PRESETS = {
         fullName: "OoT3D Randomizer",
         shortName: "OoT3DR",
         logo: "img/oot3d-randomizer-icon-srgb.png",
+        logoClass: "py-2 mb-2",
         color: "rgba(222, 187, 24, .2)",
         packFormat: "bcseq",
         maintainFolderStructure: false,
@@ -176,6 +181,7 @@ export const PRESETS = {
         fullName: "None",
         subtitle: "Show all songs with default settings",
         shortName: "No preset",
+        color: "rgba(255, 255, 255, .2)",
     }
 }
 

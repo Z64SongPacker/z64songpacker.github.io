@@ -60,60 +60,6 @@
       // TODO: ADD SUPPORT FOR MULTIPLE PREVIEW FILES!!!
       // TODO: ADD DISCORD FRIENDLY FORMAT FOR SUBMISSION COMMENTS FOR PRS 
 
-      var defaultSettings = {
-        // Main
-        darkTheme: true,
-        autosaveSelections: false,
-        showDMCACriticalTracks: false,
-        githubFetchDelay: 1250,
-        preset: "", // <-- This 
-
-        // Layout
-        isListView: true,
-        viewComposers: false,
-        viewConverters: false,
-        viewCategories: false,
-        viewFormat: true,
-        viewSourceRepository: true,
-        viewNotes: true,
-
-        // Export
-        maintainFolderStructure: false,
-        includeSelectionsAndSettings: false,
-        includeGameLogos: false,
-        excludeUnsafeTracks: false,
-        excludeDuplicates: true,
-        gameNamesFormat: "",
-        volumePreAmplifying: 0,
-        volumeBalancing: "flat",
-        includeOnlyVolumeBalancedTracks: true,
-        packFormat: "zip",
-
-        // Filters
-        filterGameName: "",
-        filterSongName: "",
-        filterSequenceType: "",
-        filterMusicGroups: "",
-        filterComposer: "",
-        filterConverter: "",
-        showFormatVanilla: true,
-        showFormatOoTCrossBank: true,
-        showFormatMMCrossBank: true,
-        showFormatCustomBank: true,
-        showFormatCustomSamples: true,
-        showFormatFormmask: true,
-
-        // Repo & selections
-        // These repos CANNOT be deleted by the user, they will always be available, ya like it or not!
-        // Should we put an ID also on this...? Make it a dictionary...?
-        userRepos: [
-          "Japas-Jams/MM-Custom-Sequences/main",
-          "DaruniasJoy/OoT-Custom-Sequences/Custom-Music-2.0"
-        ],
-        selectedReposIndices: [0, 1],
-        selections: []
-      };
-
       var repos = [];
       var selectedReposIndices = []; // Index to use in the repos array
       var database = []; // z64songs.json
@@ -265,7 +211,7 @@
           } else{
             // Also reset user selections, because the index list will shift!
             // TODO: Use a better way so the user don't lose their repo selections if they remove a repo!
-            settings.selectedReposIndices = defaultSettings.selectedReposIndices;
+            settings.selectedReposIndices = DEFAULT_SETTINGS.selectedReposIndices;
             userRepos = userRepos.filter(r => r !== repoToModify);
             toast(`Repo ${repoToModify} removed successfully!`);
           }
@@ -279,7 +225,7 @@
       function getSettings(){
         try{
           var settings = JSON.parse(atob(localStorage.settings));
-          defaultSettings.userRepos.forEach((repo, i) => {
+          DEFAULT_SETTINGS.userRepos.forEach((repo, i) => {
             // If we do not find this default repo within the user ones, we just add it
             var isAvailable = settings.userRepos.some(r => r == repo);
             if(!isAvailable) settings.userRepos.push(repo);
@@ -289,14 +235,14 @@
           // - Disables my fork of dj, used before the official was fully finished
           if(settings.userRepos.includes("CristobalPenaloza/OoT-Custom-Sequences/Custom-Music-2.0")){
             settings.userRepos = settings.userRepos.filter(r => r != "CristobalPenaloza/OoT-Custom-Sequences/Custom-Music-2.0");
-            settings.selectedReposIndices = defaultSettings.selectedReposIndices;
+            settings.selectedReposIndices = DEFAULT_SETTINGS.selectedReposIndices;
           }
 
           return settings;
 
         // If we cannot load the settings, then we crate a new one with default values
         } catch(e){
-          return defaultSettings;
+          return DEFAULT_SETTINGS;
         }
       }
 
@@ -317,7 +263,7 @@
         var settingsJson = JSON.parse(text);
 
         // Fix any missing properties
-        for (const [key, value] of Object.entries(defaultSettings)) {
+        for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
           // console.log(`${key}: ${value}`);
 
           // If we dont have a property, assign the default value! 
@@ -466,8 +412,39 @@
       // MAIN LOADING
 
       function loadPresets(){
-        //for // TODO: <---
-        // panelPresets
+        $("#panelPresets").empty();
+        for (const [id, p] of Object.entries(PRESETS)) {
+          $("#panelPresets").append(
+            `<div class="col-3">
+              <button id="btnSelectPreset-${id}" class="btn btn-search" style="--btn-search-bg-color: ${p.color}">
+                ${p.logo ? `<img src="${p.logo}" class="${p.logoClass}">` : ""}
+                <b>${p.fullName}</b>
+                ${p.subtitle ? `<div class="opacity-75">${p.subtitle}</div>` : ""}
+              </button>
+            </div>`
+          );
+        }
+
+        $("[id^='btnSelectPreset-']").on("click", function(){
+          currentPreset = $(this).attr("id").split("-")[1];
+          var preset = PRESETS[currentPreset];
+
+          // Apply the preset
+          $("#ddlPackFormat").val(preset.packFormat);
+          $("#cbxMaintainFolderStructure").prop('checked', preset.maintainFolderStructure);
+          $("#cbxIncludeGameLogos").prop('checked', preset.includeGameLogos);
+          $("#ddlGameNamesFormat").val(preset.gameNamesFormat);
+
+          var modal = bootstrap.Modal.getInstance('#modalPresetSelection');
+          modal.hide();
+
+          saveSettings();
+          init();
+        });
+
+        var current = PRESETS[currentPreset];
+        $("#lbPresetName").text(current.shortName || current.fullName);
+        $("#imgPresetLogo").toggleClass("d-none", currentPreset == "none").attr("src", current.logo);
       }
       
       async function init(){
@@ -510,7 +487,6 @@
 
           // Apply the preset to the filters, always do it on first load
           // The other options the user can change them if they want :P
-          console.log(currentPreset);
           if(currentPreset != "none"){
             var preset = PRESETS[currentPreset];
             console.log(preset);
@@ -605,7 +581,7 @@
       function loadRepoSelections(){
         $("#panelRepoSelection").empty();
         repos.forEach((repo, i) => {
-          var isDeletable = !defaultSettings.userRepos.some(r => r == repo.repoId);
+          var isDeletable = !DEFAULT_SETTINGS.userRepos.some(r => r == repo.repoId);
           var isBroken = Object.hasOwn(repo, "error");
           var isSelected = !isBroken && selectedReposIndices.includes(i);
           
@@ -637,7 +613,6 @@
             if(isSelected) selectedReposIndices = selectedReposIndices.filter(sri => sri != i);
             else selectedReposIndices.push(i);
             loadRepoSelections();
-
             // loadRepo(); // Now we reload the repos when the modal is closed!
           });
         });
@@ -657,7 +632,7 @@
           var srIndex = selectedReposIndices[0];
           $("#imgRepoAvatar").attr("src", singleRepo ? (repos[srIndex].avatarUrl ?? defaultAvatarUrl) : defaultAvatarUrl);
           $("#lbRepoName").text(singleRepo ? (repos[srIndex].name ?? repos[srIndex].repoName) : (selectedReposIndices.length == 0 ? "No Repo Selected" : "Multiple Repositories"));
-          $("#badgeRepoUnsafe").toggleClass("d-none", !selectedReposIndices.some(i => i >= defaultSettings.userRepos.length));
+          $("#badgeRepoUnsafe").toggleClass("d-none", !selectedReposIndices.some(i => i >= DEFAULT_SETTINGS.userRepos.length));
           $("#btnViewRepositoryOnGithub").toggleClass("d-none", !singleRepo);
 
           var gameIds = new Set();
@@ -766,23 +741,18 @@
           });
 
           // Show the list of games to the user
-          loadGamesList();
           updateTotalSelections();
-
-          // We finish the loading
-          $("#panelSongView, #panelGameView").removeClass("d-none");
-          hideLoadingOverlay();
-
-          // Close the repo selection modal if it's open
-          // TODO: Given that we reload the repos when the modal is closed, this can cause infinite loops... search for a better way of doing this!
-          //var modalRepoSelection = bootstrap.Modal.getInstance('#modalRepoSelection');    
-          //modalRepoSelection?.hide();
+          applyFilters();
 
           // Save our selections to storage
           saveSettingsToStorage();
 
           // Load default song view
           loadSongsList([]);
+
+          // We finish the loading
+          $("#panelSongView, #panelGameView").removeClass("d-none");
+          hideLoadingOverlay();
 
         //} catch(e){
         //  loadErrorViewWithMessage("An unknown error has ocurred: " + e);
@@ -824,8 +794,8 @@
         var filterMusicGroups = $("#ddlFilterMusicGroups").val();
         var filterComposers = $("#ddlFilterComposers").val(); // TODO: Convert these ones into select multiples... with chosen
         var filterConverters = $("#ddlFilterConverters").val();
-        var filterIsMMRS = $("#cbxFilterIsMMRS").val();
-        var filterIsOOTRS = $("#cbxFilterIsOOTRS").val();
+        var filterIsMMRS = $("#cbxFilterIsMMRS").is(":checked");
+        var filterIsOOTRS = $("#cbxFilterIsOOTRS").is(":checked");
         var filterVanillaBank = $("#cbxFilterVanillaBank").is(":checked");
         var filterCustomBank = $("#cbxFilterCustomBank").is(":checked");
         var filterCustomSamples = $("#cbxFilterCustomSamples").is(":checked");
@@ -835,6 +805,8 @@
         var filterDebugNoLufs = applyDebugFilters && $("#cbxFilterDebugNoLufs").is(":checked");
         var filterDebugNoPreview = applyDebugFilters && $("#cbxFilterDebugNoPreview").is(":checked");
 
+        console.log(filterIsMMRS + " | " + filterIsOOTRS)
+
         filteredDatabase = database.filter(s => {
           return (filterGameName ? s.game.toLowerCase().includes(filterGameName.toLowerCase()) : true) &&
                  (filterSongName ? s.song.toLowerCase().includes(filterSongName.toLowerCase()) : true) &&
@@ -843,10 +815,10 @@
                  (filterComposers ? (s.composers ?? []).includes(filterComposers) : true) &&
                  (filterConverters ? (s.converters ?? []).includes(filterConverters) : true) &&
                  
-                 // TODO: ADD CROSS BANK COMPATIBILITY
                  ((filterIsMMRS ? (s.file.endsWith(".mmrs") || s.isCrossGame) : false) ||
-                 (filterIsOOTRS ? (s.file.endsWith(".ootrs") || s.isCrossGame) : false) ||
-                 (filterCustomSamples ? s.usesCustomSamples : false) ||
+                 (filterIsOOTRS ? (s.file.endsWith(".ootrs") || s.isCrossGame) : false)) &&
+
+                 ((filterCustomSamples ? s.usesCustomSamples : false) ||
                  (filterCustomBank ? (s.usesCustomBank && !s.usesCustomSamples) : false) ||
                  (filterVanillaBank ? (!s.usesCustomSamples && !s.usesCustomBank) : false) ||
                  (filterFormmask ? s.usesFormmask : false) ||
@@ -964,7 +936,7 @@
             var badgeAppend = (hasNew || hasUpdated) ? ` <span class="badge text-bg-secondary">${hasNew ? "New" : "Updated"}</span>` : "";
 
             // Check if it's unsafe
-            var isUnsafe = songsOfSeries.some(s => s.repoIndex >= defaultSettings.userRepos.length);
+            var isUnsafe = songsOfSeries.some(s => s.repoIndex >= DEFAULT_SETTINGS.userRepos.length);
             if(isUnsafe) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
 
             // Append the series collapse nav item
@@ -1031,7 +1003,7 @@
         var badgeAppend = (hasNew || hasUpdated) ? ` <span class="badge text-bg-secondary">${hasNew ? "New" : "Updated"}</span>` : "";
 
         // Check if it's unsafe
-        var isUnsafe = songsOfGame.some(s => s.repoIndex >= defaultSettings.userRepos.length);
+        var isUnsafe = songsOfGame.some(s => s.repoIndex >= DEFAULT_SETTINGS.userRepos.length);
         if(isUnsafe) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
 
         // Append the game nav item
@@ -1100,7 +1072,7 @@
           var badgeAppend = (isNew || isUpdated) ? ` <span class="badge text-bg-secondary">${isNew ? "New" : "Updated"}</span>` : "";
           
           // Check if is unsafe
-          var isUnsafe = s.repoIndex >= defaultSettings.userRepos.length;
+          var isUnsafe = s.repoIndex >= DEFAULT_SETTINGS.userRepos.length;
           if(isUnsafe) badgeAppend += ` <span class="badge text-bg-danger">Unsafe</span>`;
 
           // Check if it has volume issues
@@ -1110,7 +1082,7 @@
           if(s.usesFormmask) format += " formmask";
           else if(s.usesCustomSamples) format += " custom samples";
           else if(s.usesCustomBank) format += " custom bank";
-          else format += " vanilla";
+          else format += " vanilla" + (s.isCrossGame ? " (cross-game)" : "");
           
           // LIST VIEW
           var isListView = $("#ddlLayout").val() == "list";
@@ -1205,6 +1177,7 @@
         });
 
 
+        updateTotalSelections();
         updatePanelsSelectedCount();
         updateSongViewOptions();
         // Check if any of the lists are empty
@@ -1345,7 +1318,7 @@
         $("#lbSelectedFanfaresCount").text(`${checkedFanfares}/${fanfareCount} selected`);
       }
       function updateTotalSelections(){
-        $("#lbTotalSelected").text(selections.length + "/" + database.length);
+        $("#lbTotalSelected").text(selections.length + "/" + filteredDatabase.length);
       }
 
 
@@ -1443,7 +1416,7 @@
             var otrSequence = {}; // <- Format: name, seqData, metaData
 
             // Exclude the unsafe tracks if the user wants it for this specific download
-            if(excludeUnsafeTracks && repoIndex >= defaultSettings.userRepos.length) continue;
+            if(excludeUnsafeTracks && repoIndex >= DEFAULT_SETTINGS.userRepos.length) continue;
 
             // Skip songs that are not volume balanced if the user wants it
             if(includeOnlyVolumeBalancedTracks && volumeBalancing != "none" && !song.lufs) continue;
@@ -1746,34 +1719,16 @@
         $("#btnResetFilters").on("click", resetFilters);
         $("#btnAddRepository").on("click", addRepository);
 
-        $("[id^='btnSelectPreset-']").on("click", function(){
-          currentPreset = $(this).attr("id").split("-")[1];
-          var preset = PRESETS[currentPreset];
-
-          // Apply the preset
-          $("#ddlPackFormat").val(preset.packFormat);
-          $("#cbxMaintainFolderStructure").prop('checked', preset.maintainFolderStructure);
-          $("#cbxIncludeGameLogos").prop('checked', preset.includeGameLogos);
-          $("#ddlGameNamesFormat").val(preset.gameNamesFormat);
-
-          saveSettings();
-          init();
-        });
-
         $("#cbxSelectAll").on("change", function(){
           var checkedState = this.checked;
-          console.log("Checkedstate " + checkedState);
           // To "select all", we do it with the current applied filter, to not interfere with the other user selections
           $(".btn-game").not(".d-none").each(function(){
             var game = $(this).data("game");
-            var songIndices = database.filter((s) => s.game == game).map((s) => s.index);
-            // console.log("Indices for " + game + " | " + songIndices);
-            if(checkedState) selections.push(...songIndices);
-            else selections = selections.filter((s) => !songIndices.includes(s));
-            // console.log("Selections done for " + game);
+            // Using Set for optimization purposes...
+            var songIndices = new Set(filteredDatabase.filter((s) => s.game == game).map((s) => s.index));
+            if(checkedState) selections = [...new Set([...selections, ...songIndices])];
+            else selections = selections.filter((s) => !songIndices.has(s));
           });
-          console.log("Selections updated");
-          console.log(selections);
           updateSelections();
         });
 
@@ -2180,7 +2135,7 @@
                   <i class="fa-solid fa-download"></i> Download song pack
                 </a>
                 <span style="width: 2px; background-color: var(--bs-primary-text-emphasis) !important"></span>
-                <select class="btn btn-primary ps-1" style="max-width: 102px !important; border-top-right-radius: 0" id="ddlPackFormat">
+                <select class="btn btn-primary ps-1" style="max-width: 112px !important; border-top-right-radius: 0" id="ddlPackFormat">
                   <option value="zip">N64 (.zip)</option>
                   <option value="otr-soh">SoH (.otr)</option>
                   <option value="otr-2s2h">2S2H (.otr)</option>
@@ -2205,10 +2160,10 @@
       <span class="mx-1 opacity-25">|</span>
 
       <button type="button" data-bs-toggle="modal" data-bs-target="#modalPresetSelection" class="btn border-0 px-2">
-        <div class="row g-2">
+        <div class="row g-2 align-items-center">
+          <img id="imgPresetLogo" width="32" height="32" class="col-auto d-none ml-3" src="">
           <div class="col mb-0">
-            <img src="">
-            <span id="lbRepoName">No preset</span>
+            <span id="lbPresetName">No preset</span>
             <i class="fa-solid fa-caret-down"></i>
           </div>
         </div>
@@ -2611,64 +2566,7 @@
               The packer will adapt and set optimized settings for the game you select.
               Pick <b>None</b> if you don't plan on using any game, or just want to listen!
             </p>
-
-            <div class="row g-2" id="panelPresets">
-              <div class="col-3">
-                <button id="btnSelectPreset-ootr" class="btn btn-search" style="--btn-search-bg-color: rgba(16, 36, 57, .4)">
-                  <img src="https://wiki.ootrandomizer.com/images/ootr-logo_sm.png">
-                  <b>Ocarina of Time Randomizer</b>
-                </button>
-              </div>
-
-              <div class="col-3">
-                <button id="btnSelectPreset-mmr" class="btn btn-search" style="--btn-search-bg-color: rgba(56, 4, 51, .3)">
-                  <img src="https://mmrandomizer.com/img/logo/full/png/mm-randomizer-logo_md.png">
-                  <b>Majora's Mask Randomizer</b>
-                </button>
-              </div>
-
-              <div class="col-3">
-                <button id="btnSelectPreset-ootmm" class="btn btn-search" style="--btn-search-bg-color: rgba(34, 55, 142, .3)">
-                  <img class="mb-2" src="https://ootmm.com/assets/logo-BwfJkge3.png">
-                  <b>OoTMM</b>
-                </button>
-              </div>
-
-              <div class="col-3">
-                <button id="btnSelectPreset-mmrecomp" class="btn btn-search" style="--btn-search-bg-color: rgba(22, 181, 195, .2)">
-                  <img class="py-2" src="https://avatars.githubusercontent.com/u/170279347">
-                  <b>Majora's Mask Recompiled</b>
-                </button>
-              </div>
-
-              <div class="col-3">
-                <button id="btnSelectPreset-soh" class="btn btn-search" style="--btn-search-bg-color: rgba(85, 150, 82, .25)">
-                  <img class="mb-2" src="https://www.harbourmasters.org/icons/games/ShipOfHarkinian.webp">
-                  <b>Ship of Harkinian</b>
-                </button>
-              </div>
-
-              <div class="col-3">
-                <button id="btnSelectPreset-s2h2" class="btn btn-search" style="--btn-search-bg-color: rgba(155, 99, 183, .3)">
-                  <img class="mb-2" src="https://www.harbourmasters.org/icons/games/2Ship2Hakinian.webp">
-                  <b>2Ship2Hakinian</b>
-                </button>
-              </div>
-
-              <div class="col-3">
-                <button id="btnSelectPreset-oot3dr" class="btn btn-search" style="--btn-search-bg-color: rgba(222, 187, 24, .2)">
-                  <img class="py-2 mb-2" src="img/oot3d-randomizer-icon-srgb.png">
-                  <b>OoT3D Randomizer</b>
-                </button>
-              </div>
-
-              <div class="col-3">
-                <button id="btnSelectPreset-none" class="btn btn-search">
-                  <b>None</b>
-                  <div class="opacity-75">Show all songs with default settings</div>
-                </button>
-              </div>
-            </div>
+            <div class="row g-2" id="panelPresets"></div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>

@@ -182,6 +182,16 @@ export const PRESETS = {
         subtitle: "Show all songs with default settings",
         shortName: "No preset",
         color: "rgba(255, 255, 255, .2)",
+        packFormat: "zip",
+        maintainFolderStructure: false,
+        includeGameLogos: false,
+        gameNamesFormat: "full",
+        showFormatOOTRS: true,
+        showFormatMMRS: true,
+        showFormatVanilla: true,
+        showFormatCustomBank: true,
+        showFormatCustomSamples: true,
+        showFormatFormmask: true
     }
 }
 

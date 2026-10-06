@@ -28,8 +28,7 @@ Is able to source the songs from any repository that can connect. By default com
 - [Darunia's Joy](https://github.com/DaruniasJoy/OoT-Custom-Sequences): for ootrs files, made with Ocarina of Time in mind.
 - [Japas' Jams](https://github.com/Japas-Jams/MM-Custom-Sequences): for mmrs files, made with Majora's Mask in mind.
 
-> Psst... any repository with the proper setup can connect, so if you know other repos, high chance they can also be used here in the packer. For personal use only!
-
+> Psst... any repository with the proper setup can connect, so if you know other repos, high chance they can also be used here in the packer. For personal use only! There may be good reason why they're not here by default...
 
 ### Song player
 
@@ -79,11 +78,11 @@ You can see my findings about this topic over here: [N64 to 3DS bank, instrument
 
 ### otrwebtools
 
-This is a [WASM](https://webassembly.org/) (or WebAssembly) module that allows **OTR packing**, which is the mod format for libultra projects (specifically, Ship of Harkinian and 2Ship).
+This is a [WASM](https://webassembly.org/) (or WebAssembly) module that allows **OTR packing**, which is the mod format for libultraship projects (specifically, Ship of Harkinian and 2Ship).
 
 Initially started as a conversion of [SequenceOTRizer](https://github.com/leggettc18/SequenceOTRizer) made by **leggettc18**, that was used to build the "Ship of Harkinian" bundle from Darunia's Joy.
 
-But in the end, became a basic OTR packer using the [StormLib](https://github.com/ladislav-zezula/StormLib) by **Ladislav Zezula**, which is the internal format used in OTR files.
+But in the end, became a basic OTR packer using the [StormLib](https://github.com/ladislav-zezula/StormLib) by **Ladislav Zezula**, which is the internal format used in OTR files ([.mpq archive](http://www.zezula.net/en/mpq/main.html)).
 
 This allow me to *fully control* what gets packed in every OTR, so it's easily integrated with the rest of the packer's features.
 
@@ -94,21 +93,21 @@ This allow me to *fully control* what gets packed in every OTR, so it's easily i
 
 **None of these two features were planned initially** for the packer. I really wanted to be able to include both 3DS and OTR conversion. But I was missing some steps that could take a long time to investigate and build.
 
-Around the time I was working on this project, I learned to use AI tools for my job since I was given a Claude Code subscription.
+Around the time I was working on this project, I learned to use AI tools for my job since I was given a Claude Code subscription that I'm free to use on any personal project on the weekends.
 
-So, I tried building these as a proof of concept. In the end both worked, I didn't wanted to gatekeep them left them out, since I was using both in my own runs.
+So, I tried building these modules as proofs of concept. In the end both worked pretty well, and I didn't wanted to gatekeep them and left them out, since I was using both in my own rando seeds.
 
-Was just afterwards I learned the Gen-AI issues that arose on the Zelda 64 communities. That push me to write this detailed explanation, for transparency sake.
+Was just afterwards the packer's launch that I learned the Gen-AI issues that arose on the Zelda 64 communities. That push me to write this detailed explanation, for transparency sake.
 
 ### Ok, so now what?
 
-I will **not** take part in the "pro-AI vs anti-AI" discussion, so don't ask me about it.
+**I will not take part in the "pro-AI vs anti-AI" discussion, so don't ask me about it.**
 
-But, I ***do*** want to make all members of these communities happy. That's the reason I started this project in the first place. So, here is my position:
+But, I **do** want to make all members of these communities happy. That's the reason I started this project in the first place. So, here is my position:
 
 - **Everyone decides**: I just laid out what I made. What you do with this information is up to you now! If you don't want to use nor promote this project because of these reasons, I fully respect your position.
-- **No AI contributions**: to prevent future issues, all AI-made contributions to this project will be politely rejected.
-- **Replacements for these modules are wanted**: all AI-gen'd code has the same issue: you as a dev don't know exactly it's in-and-outs. That obviously causes issues for maintenance and contributing. So, if you want to replace any of these modules with your AI-free code, please do!
+- **No AI contributions**: to future-proof this project, all AI-made contributions to this project will be politely rejected. This will also include my own implementations of new features.
+- **Replacements for these modules are wanted**: all AI-gen'd code has the same issue: you as a dev don't know exactly it's in-and-outs. That obviously causes issues for maintenance and contributing. So, if you want to replace any of these modules with your own AI-free code, please do! (Specially the OTR one... that one was made before O2R was more widespread, a that format is *much* better for maintainability).
 
 ---
 

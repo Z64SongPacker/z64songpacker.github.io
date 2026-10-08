@@ -144,7 +144,7 @@ export const PRESETS = {
         showFormatFormmask: false
     },
     "s2h2": {
-        fullName: "2Ship2Hakinian",
+        fullName: "2Ship2Harkinian",
         shortName: "2S2H",
         logo: "https://www.harbourmasters.org/icons/games/2Ship2Hakinian.webp",
         logoClass: "mb-2",

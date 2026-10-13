@@ -223,6 +223,11 @@ export class SeqUtils{
         return Math.round(127 * Math.pow(10, (decibels / 40)));
     }
 
+    static safeFilename(filename){
+        var unsafeCharacters = /[\\\/:*?"<>|]/g
+        return filename.replace(unsafeCharacters, "");
+    }
+
     static replaceFilenameWithSafeAlternatives(filename){
         var unsafeCharacters = /[\\\/:*?"<>|]/g
         return filename.replace("/", "∕") // U+2215 (Division Slash)

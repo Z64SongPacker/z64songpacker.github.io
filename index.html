@@ -632,7 +632,19 @@
           $("#badgeRepoUnsafe").toggleClass("d-none", !selectedReposIndices.some(i => i >= DEFAULT_SETTINGS.userRepos.length));
           $("#btnViewRepositoryOnGithub").toggleClass("d-none", !singleRepo);
 
-          var gameIds = new Set();
+          // Load the games database
+          // Now from a centralized location!
+          setLoadingOverlayText("Loading games database...");
+          var gamesDbLink = "https://raw.githubusercontent.com/Z64SongPacker/Z64GamesDatabase/main/z64games.json";
+          var gamesDbResponse = await githubFetch(gamesDbLink);
+          if(gamesDbResponse.ok){
+            gamesDb = (await gamesDbResponse.json()).filter((g) => typeof(g) == "object");
+          } else{
+            loadErrorView(gamesDbResponse);
+            return;
+          }
+
+          // Load selected repos
           for(var selectedRepoIndex of selectedReposIndices.sort()){
             var selectedRepo = repos[selectedRepoIndex];
             if(!selectedRepo){
@@ -645,26 +657,6 @@
             // Generate the repo link
             var rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/`;
             if(selectedRepo.useSecondaryBranch == 'true') rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/z64packer/`;
-            
-            // Get the optional games database from the current repo
-            setLoadingOverlayText(`${repoName} | Loading games database...`);
-            var gamesDbLink = rawLink + "z64games.json";
-            var gamesDbResponse = await githubFetch(gamesDbLink);
-            if(gamesDbResponse.ok){
-
-              // Do it this way so it's faster (and prevent oom errors and duplication)
-              var repoGamesDb = (await gamesDbResponse.json()).filter((g) => typeof(g) == "object");
-              for(var g of repoGamesDb){
-                if (!gameIds.has(g.game)) {
-                  gamesDb.push(g);
-                  gameIds.add(g.game);
-                }
-              }
-
-            } else{
-              loadErrorView(gamesDbResponse);
-              return;
-            }
           
             // Get the database from the current repo
             setLoadingOverlayText(`${repoName} | Loading songs database...`);
@@ -1036,6 +1028,7 @@
         
         if(games.length == 1){
           var logo = gamesDb.find(g => g.game == games[0])?.logo ?? "";
+          if(logo.startsWith("https://i.imgur.com/")) logo = "https://imgup.uk/proxy/?url=" + logo; // Use a proxy for UK users
           $("#imgTitleSongs").attr("src", logo);
         }
 
@@ -1404,7 +1397,19 @@
           }
         }
 
+        // Also load the game logos zip if we need to download them
+        var logos = [];
+        var downloadLogos = packFormat == "zip" && maintainFolderStructure && gameNamesFormat == "full" && currentPreset == "mmrecomp";
+        if(downloadLogos){
+          setLoadingOverlayText("Downloading logos...");
+          var logosLink = "https://raw.githubusercontent.com/Z64SongPacker/Z64GamesDatabase/main/games.zip";
+          var logosResponse = await githubFetch(logosLink);
+          if(logosResponse.ok) logos = await new JSZip().loadAsync(await logosResponse.blob());
+          else errorResponseToast(binariesResponse);
+        }
+        
         const songIndices = new Set(filteredDatabase.map((s) => s.index));
+        var selectedGames = new Set();
 
         // Loop every selection
         var songCount = 0;
@@ -1489,26 +1494,26 @@
             
             // Get the final name for the song using the options selected
             var extension = song.file.split('.').pop();
-            var finalSongNameUnsafe = `${gameName} - ${song.song}`;
+            var songName = song.song;
 
             // Check if they have duplicated names
             // If that's the case, append the repo name to differentiate
+            var finalSongNameUnsafe = `${gameName} - ${songName}`;
             if(packedFileNames.has(finalSongNameUnsafe.toUpperCase())){
+              songName = `${songName} (${repoAcronym})`;
               finalSongNameUnsafe = `${finalSongNameUnsafe} (${repoAcronym})`;
             }
-
-            var finalSongName = SeqUtils.replaceFilenameWithSafeAlternatives(finalSongNameUnsafe).replaceAll("꞉", "").replaceAll("∕", "");
-            otrSequence.name = finalSongNameUnsafe;
 
             // If using OTR or BCSEQ, skip any song with custom bank or samples (sadly...)
             if((packFormat.startsWith("otr-") || packFormat == "bcseq") && (song.usesCustomBank || song.usesCustomSamples)) continue;
 
-            // For testing:
-            // finalSongName = `${finalSongName.length}-${finalSongName}`
-
-            var fileName = `${finalSongName}.${extension}`;
-            if(maintainFolderStructure) fileName = song.file; // <- If we want to maintain the folder structure, we just return the path as it is on github
+            // Apply the name using the configuration by the user
+            var fileName = `${SeqUtils.safeFilename(gameName)} - ${SeqUtils.safeFilename(songName)}.${extension}`;
+            if(maintainFolderStructure) fileName = `${SeqUtils.safeFilename(gameName)}/${SeqUtils.safeFilename(songName)}.${extension}`;
             
+            // TODO: SHOULD FOLDER STRUCTURE ALSO BE APPLIED TO OTR? Investigate...
+            otrSequence.name = finalSongNameUnsafe;
+
             // Iterate over every internal file...
             var z64File = await new JSZip().loadAsync(songFile.async("blob"));
             var internalFiles = z64File.file(/(.*?)/).sort((a, b) => {
@@ -1657,6 +1662,7 @@
 
             // Add the file
             songCount++;
+            selectedGames.add(song.game);
             packedFileNames.add(finalSongNameUnsafe.toUpperCase());
             console.log(`Packing: ${fileName}`);
             setLoadingOverlayText(`Packing... ${songCount} files`);
@@ -1674,6 +1680,21 @@
 
           } catch(e){
             // An error ocurred... skip this track
+          }
+        }
+
+        // Pack the logos!
+        if(downloadLogos){
+          for(var game of gamesDb){
+            if(!selectedGames.has(game.game)) continue;
+            var safeGameName = SeqUtils.safeFilename(game.game);
+            var logosFound = logos.filter((path, file) => path.startsWith(safeGameName + "."));
+            if(logosFound.length > 0){
+              var logoPath = `${safeGameName}/logo.png`;
+              zip.file(logoPath, await logosFound[0].async("uint8array"));
+              console.log(`Packing logo: ${logoPath}`);
+              setLoadingOverlayText(`Packing logo: ${logoPath}`);
+            }
           }
         }
         
@@ -1767,7 +1788,7 @@
         $("#btnExportSettings").on("click", function(){
           saveSettingsToStorage();
           var settings = getSettings();
-          var settingsBlob = new Blob([JSON.stringify(settings)], {
+          var settingsBlob = new Blob([JSON.stringify(gamesDb)], {
               type: 'application/json'
           });
           saveAs(settingsBlob, `Z64 Song Packer - Settings and selections - ${Date.now()}.z64packersettings`);

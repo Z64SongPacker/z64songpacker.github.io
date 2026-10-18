@@ -1509,7 +1509,7 @@
 
             // Apply the name using the configuration by the user
             var fileName = `${SeqUtils.safeFilename(gameName)} - ${SeqUtils.safeFilename(songName)}.${extension}`;
-            if(maintainFolderStructure) fileName = `${SeqUtils.safeFilename(gameName)}/${SeqUtils.safeFilename(songName)}.${extension}`;
+            if(maintainFolderStructure && packFormat == "zip") fileName = `${SeqUtils.safeFilename(gameName)}/${SeqUtils.safeFilename(songName)}.${extension}`;
             
             // TODO: SHOULD FOLDER STRUCTURE ALSO BE APPLIED TO OTR? Investigate...
             otrSequence.name = finalSongNameUnsafe;
@@ -1555,7 +1555,7 @@
               if(file.name.endsWith(".metadata")){
                 // TODO: Seems that Crin won't be pursuing this anymore, but I'll still keep this here if she decides to come back
                 var metadataYaml = YAML.parse(await file.async("text"));
-                metadataYaml["metadata"]["display name"] = finalSongName;
+                metadataYaml["metadata"]["display name"] = finalSongNameUnsafe;
                 z64File.file(file.name, YAML.stringify(metadataYaml));
               }
 
@@ -1633,17 +1633,18 @@
 
                 // If BCSEQ add NOW the file (since we need to transform the seq), and also create the cmeta file
                 if(packFormat == "bcseq"){
-                  // console.log("BANK: " + bank);
+                  //console.log("BANK: " + bank);
                   var bankOffset = parseInt(bank) + 4; // All banks in 3DS are decimal integers, offset by 4
                   var bankList = `${(bankOffset)}, 4`; // Apply offset and always include bank 4 (for chiptunes) 
                   if(bank == 0) bankList = "0, 1, 2, 4"; // Bank 0 is splitted, so we need to include all of the sfx banks 
                   else if (bank == 1) bankList = "3, 4"; // Bank 1 uses a single bank in OoT3D (BANK_ENEMY)
                   else if (bank == 2) bankList = "42, 4"; // Bank 2 uses a single bank in OoT3D (BANK_NATURE)
 
-                  // console.log("BANKLIST: " + bankList);
-
+                  //console.log("BANKLIST: " + bankList);
+                  
                   var folder = song.type == "bgm" ? "!Background Music" : "!Melodies/!Fanfares";
-                  var extraSafeName = finalSongName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                  var extraSafeName = fileName.replace(".mmrs", "").replace(".ootrs", "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
                   var bcseq = seqToBcseq(seq, { bank });
                   var chFlags = trackFlags(bcseq);
                   var category = (song.tags ? PackerTags.toOoT3D(song.tags).join(", ") : "!Background Music");

@@ -519,7 +519,7 @@
               // Read the MMRS-only categories file
               if(!ootrs && path == "categories.txt"){
                 file.async("text").then(function(text) {
-                  var categories = text.replaceAll('-', ','); // <-- Normalize separator
+                  var categories = text.replaceAll('-', ',').replaceAll(" ", ""); // <-- Normalize separator
                   $("#lbMusicGroups").text(categories);
 
                   // Detect if the categories are correctly mapped

@@ -1470,6 +1470,8 @@
                 // - Convert roman numerals to numbers
                 } else{
                   abbreviatedName = splittedGameName.map(x => {
+                    // Edge cases... Sonic CD, Mega Man X (this also includes FFX, but that one is better that way for X-2)
+                    if(x == "CD" || x == "X") return x;
                     x = SeqUtils.convertIfRomanNumeral(x);
                     return /^\d+$/.test(x) ? x : x.slice(0, 1);
                   }).join("");

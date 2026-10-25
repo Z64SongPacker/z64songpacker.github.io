@@ -656,7 +656,6 @@
 
             // Generate the repo link
             var rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/`;
-            if(selectedRepo.useSecondaryBranch == 'true') rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/z64packer/`;
           
             // Get the database from the current repo
             setLoadingOverlayText(`${repoName} | Loading songs database...`);
@@ -1384,6 +1383,7 @@
           // Fetch the full binaries.zip file
           setLoadingOverlayText(`${selectedRepo.name} | Fetching binaries...`);
           var binariesLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/binaries.zip`.replaceAll("//", "/");
+          if(selectedRepo.useSecondaryBranch == 'true') binariesLink = "https://" + `raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/z64packer-zip/binaries.zip`.replaceAll("//", "/")
           var binariesResponse = await githubFetch(binariesLink);
 
           if(binariesResponse.ok){

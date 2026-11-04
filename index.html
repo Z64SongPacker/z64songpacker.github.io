@@ -180,7 +180,7 @@
         settings.excludeUnsafeTracks = $("#cbxExcludeUnsafeTracks").is(":checked");
         settings.excludeDuplicates = $("#cbxExcludeDuplicates").is(":checked");
         settings.gameNamesFormat = $("#ddlGameNamesFormat").val();
-        settings.volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
+        settings.volumePreAmplifying = parseFloat($("#rgVolumePreAmplifying").val());
         settings.volumeBalancing = $("#ddlVolumeBalancing").val();
         settings.includeOnlyVolumeBalancedTracks = $("#cbxIncludeOnlyVolumeBalancedTracks").is(":checked");
         settings.packFormat = $("#ddlPackFormat").val();
@@ -1357,7 +1357,7 @@
         var excludeDuplicates = $("#cbxExcludeDuplicates").is(":checked");
         var selectionsHashMap = []; // <- For dupe detection
         var gameNamesFormat = $("#ddlGameNamesFormat").val();
-        var volumePreAmplifying = parseInt($("#rgVolumePreAmplifying").val());
+        var volumeAmplification = parseFloat($("#rgVolumePreAmplifying").val());
         var volumeBalancing = $("#ddlVolumeBalancing").val();
         var includeOnlyVolumeBalancedTracks = $("#cbxIncludeOnlyVolumeBalancedTracks").is(":checked");
         var packFormat = $("#ddlPackFormat").val();
@@ -1596,7 +1596,7 @@
                     // TODO: Make the flat loudness user input
                     var flatLoudness = -19;
                     if(song.type == "fanfare") flatLoudness = -18; // Make fanfares a bit louder
-                    SeqUtils.setLoudness(seq, song.lufs, flatLoudness);
+                    SeqUtils.setLoudness(seq, song.lufs, flatLoudness + volumeAmplification);
                     
                   } else if(volumeBalancing.startsWith("ideal-")){
                     // TODO: Implement ideal lufs for OOTRS
@@ -1604,21 +1604,15 @@
                     if(idealLufs.length > 0){
                       if(volumeBalancing.endsWith("-average")){
                         var average = idealLufs.reduce((sum, num) => sum + num, 0) / idealLufs.length;
-                        SeqUtils.setLoudness(seq, song.lufs, average);
+                        SeqUtils.setLoudness(seq, song.lufs, average + volumeAmplification);
 
                       } else if(volumeBalancing.endsWith("-quiet")){
                         var quietest = Math.min(...idealLufs);
-                        SeqUtils.setLoudness(seq, song.lufs, quietest);
+                        SeqUtils.setLoudness(seq, song.lufs, quietest + volumeAmplification);
                       }
                     }
                   }
                 }
-                
-                // Apply the volume pre amplifying
-                // TODO: CONVERT THIS INTO DECIBELS!!!
-                //if(volumePreAmplifying != 0){
-                //  SeqUtils.preAmplifyVolume(seq, volumePreAmplifying);
-                //}
 
                 // If this is mmrs and otr, build a metadata string for it
                 if((packFormat.startsWith("otr-") || packFormat == "bcseq") && extension == "mmrs"){
@@ -2119,40 +2113,54 @@
               <p class="hint game-name-format abbreviated">Uses an abbreviation of the game name. E.g: <i>TLoZMM</i></p>
             </li>
             <hr class="my-2">
-            <li><h6 class="dropdown-header">Volume balancing (experimental):</h6></li>
+            <li><h6 class="dropdown-header">Volume balancing:</h6></li>
             <li class="px-3">
               <select class="form-control mb-1" id="ddlVolumeBalancing">
                 <option value="none">None</option>
                 <option value="flat">Flat volume</option>
-                <option value="ideal-average">Ideal averaged</option>
-                <option value="ideal-quiet">Ideal prefer quiet</option>
+                <option value="ideal-average">Ideal averaged (experimental)</option>
+                <option value="ideal-quiet">Ideal prefer quiet (experimental)</option>
                 <!-- custom ideal lufs...? -->
+                <!-- TODO: Also try to build a tailored balance: like averaged, but less wide -->
               </select>
               <p class="hint volume-balancing none">Song volume is set as their creator made. Songs can vary wildly in volume.</p>
               <p class="hint volume-balancing flat">Song volume is forced to a set loudness (-19 LUFS for BGM and -18 LUFS for fanfares). Consistent volume for all songs.</p>
               <p class="hint volume-balancing ideal-average">Song volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, their loudness are averaged.</p>
               <p class="hint volume-balancing ideal-quiet">Song volume is selected from an ideal LUFS table, depending on song categories. If a song has multiple categories, the most quiet loudness is used.</p>
-              
+            
               <div class="form-check form-check-inline mx-0" id="fgIncludeOnlyVolumeBalancedTracks">
                 <input class="form-check-input" type="checkbox" id="cbxIncludeOnlyVolumeBalancedTracks">
                 <label class="form-check-label" for="cbxIncludeOnlyVolumeBalancedTracks">Include only volume balanced tracks</label>
               </div>
             </li>
-            <hr class="d-none my-2">
-            <li class="d-none"><h6 class="dropdown-header">Volume pre-amplifying:</h6></li>
-            <li class="d-none">
-              <div class="px-3 row">
+
+            <hr class="my-2">
+            <li><h6 class="dropdown-header">Volume amplification (experimental):</h6></li>
+            <li class="px-3">
+              <div class="row">
                 <div class="col">
-                  <input type="range" class="form-range" min="-100" max="100" step="1" id="rgVolumePreAmplifying" list="dtVolumePreAmplifying"
-                    oninput="$('#lbVolumePreAmplifying').text((parseInt(this.value) > 0 ? '+' : '') + this.value)">
+                  <input type="range" class="form-range" min="-6" max="6" step="0.1" id="rgVolumePreAmplifying" list="dtVolumePreAmplifying"
+                    oninput="$('#lbVolumePreAmplifying').text((parseFloat(this.value) > 0 ? '+' : '') + this.value + ' dB')"
+                    style="appearance: auto; -webkit-appearance: auto; -moz-appearance: auto">
                   <datalist id="dtVolumePreAmplifying">
-                    <option value="-100" label="-100"></option>
-                    <option value="0" label="0"></option>
-                    <option value="100" label="+100"></option>
+                    <option value="-6"></option>
+                    <option value="-5"></option>
+                    <option value="-4"></option>
+                    <option value="-3"></option>
+                    <option value="-2"></option>
+                    <option value="-1"></option>
+                    <option value="0"></option>
+                    <option value="1"></option>
+                    <option value="2"></option>
+                    <option value="3"></option>
+                    <option value="4"></option>
+                    <option value="5"></option>
+                    <option value="6"></option>
                   </datalist>
                 </div>
-                <span class="col-auto ps-0" style="width: 50px;" id="lbVolumePreAmplifying">0</span>
+                <span class="col-auto px-0 mx-0" style="width: 60px;" id="lbVolumePreAmplifying">0</span>
               </div>
+              <p class="hint">Adds the amount of decibels to all songs <i>after</i> volume balancing is applied.</p>
             </li>
 
             <hr class="mt-2 mb-0">

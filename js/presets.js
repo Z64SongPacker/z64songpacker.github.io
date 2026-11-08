@@ -5,7 +5,7 @@ export const DEFAULT_SETTINGS = {
     darkTheme: true,
     autosaveSelections: false,
     showDMCACriticalTracks: false,
-    githubFetchDelay: 1250,
+    githubFetchDelay: 500,
     preset: "", // <-- This will force a bunch of settings on load, the user can change them, but will be overwritten
 
     // Layout

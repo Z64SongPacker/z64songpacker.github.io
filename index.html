@@ -109,9 +109,17 @@
       }
 
       // This function is here to better handle request to raw.githubusercontent.com, given github strict rate limits for unauthenticated requests
-      async function githubFetch(link){
+      async function githubFetch(link, cacheTag = null, ignoreFetchDelay = false){
+
+        // Try to get it from cache first
         var settings = getSettings();
-        await sleep(settings.githubFetchDelay || 1250);
+        var cache = await caches.open("z64songpacker");
+        if(cacheTag){
+          var cachedResponse = await cache.match(link + cacheTag);
+          if(cachedResponse) return cachedResponse;
+        }
+
+        if(!ignoreFetchDelay) await sleep(settings.githubFetchDelay || 500);
         
         // We should retry 3 times (only for special cases!)
         for(var retry = 0; retry <= 3; retry++){
@@ -128,8 +136,6 @@
             redirect: 'follow',
             //mode: "no-cors"
           });
-          
-          //console.log(response);
 
           // If the response is an 429 (to many requests), we should wait a bit and try again (5 seconds)
           // We should retry 3 times, before just returning
@@ -142,7 +148,10 @@
             
           // On every other case, we just return the given response
           // Everything else should be handled on a case by case basis
-          } else return response;
+          } else {
+            if(cacheTag && response.ok) await cache.put(link + cacheTag, response.clone());
+            return response;
+          }
         }
       }
 
@@ -460,7 +469,7 @@
           $("#cbxAutosaveSelections").prop('checked', settings.autosaveSelections);
           autosaveSelections = settings.autosaveSelections;
           $("#cbxShowDMCACriticalTracks").prop('checked', settings.showDMCACriticalTracks);
-          $("#rgGithubFetchDelay").val((settings.githubFetchDelay || 1250) * 0.001).trigger("input");
+          $("#rgGithubFetchDelay").val((settings.githubFetchDelay || 500) * 0.001).trigger("input");
           showDMCACriticalTracks = settings.showDMCACriticalTracks;
           currentPreset = settings.preset || "none";
 
@@ -512,20 +521,8 @@
             setLoadingOverlayText(`${repo} | Loading properties...`);
 
             // Get the z64musicpacker.properties from this repo
-            // From main branch: https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/z64packer/z64musicpacker.properties
-            // From secondary branch: https://raw.githubusercontent.com/${owner}/${repo}/z64packer/z64musicpacker.properties
-            // DISCLAIMER: No fetch in this page should be cached! As we are getting information from github, and that info can change
-            // by the minute, we need to be able to always get the latest version (see https://stackoverflow.com/a/42518434)
-            
-            // First we try getting it from the main branch (classic method)
             var z64PropertiesLink = `https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/z64packer/z64musicpacker.properties`;
-            var propertiesResponse = await githubFetch(z64PropertiesLink);
-
-            // If we did not find there, we try the secondary branch
-            if(!propertiesResponse.ok){
-              var z64PropertiesLink = `https://raw.githubusercontent.com/${owner}/${repo}/z64packer/z64musicpacker.properties`;
-              var propertiesResponse = await githubFetch(z64PropertiesLink);
-            }
+            var propertiesResponse = await githubFetch(z64PropertiesLink, null, i == 0);
 
             var repoObject = {
               repoName: repo,
@@ -658,9 +655,10 @@
             var rawLink = `https://raw.githubusercontent.com/${selectedRepo.repoOwner}/${selectedRepo.repoName}/${selectedRepo.repoDefaultBranch}/z64packer/`;
           
             // Get the database from the current repo
+            console.log(`${repoName} | Loading songs database...`);
             setLoadingOverlayText(`${repoName} | Loading songs database...`);
             var dbLink = rawLink + "z64songs.json";
-            var dbResponse = await githubFetch(dbLink);
+            var dbResponse = await githubFetch(dbLink, selectedRepo.sha);
             if(dbResponse.ok){
               // Load the database | IMMEDIATLY filter DMCA-critical tracks, we don't want any surprises!
               database = [...new Set([
@@ -682,6 +680,7 @@
 
           // Sort by series, then by game, then by song
           // Since we use these indexes for playlist, they need to be in the proper order...
+          setLoadingOverlayText("Finishing touches...");
           database.sort((a, b) => {
             var seriesA = gamesDb.find(g => g.game == a.game)?.series ?? a.game;
             var seriesB = gamesDb.find(g => g.game == b.game)?.series ?? b.game;
@@ -700,7 +699,6 @@
           });
 
           // Get the saved settings and selections
-          console.log("Loading settings and user selections...");
           var settings = getSettings();
           var songIndices = database.filter((s) => settings.selections.includes(s.uuid)).map((s) => s.index);
           selections = [];

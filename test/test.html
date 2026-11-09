@@ -19,6 +19,7 @@
     <script type="module">
       import { SeqUtils } from "../js/sequtils.js";
       import { PackerUtils } from "../js/packerutils.js";
+      import { Bank } from "../js/banks/types.js";
 
       async function testLocalSeqFile(path){
         console.log("Testing file " + path);
@@ -38,9 +39,11 @@
         $("#fileUpload").on("change", async function(event){
           var data = await PackerUtils.extractFileData(event.target.files[0]);
 
-          var seqOutput = SeqUtils.seqReader(data.seq);
-          console.log(seqOutput);
-          $("#txtSequence").text(seqOutput.join("\n"));
+          //var seqOutput = SeqUtils.seqReader(data.seq);
+          //console.log(seqOutput);
+          //$("#txtSequence").text(seqOutput.join("\n"));
+
+          var bank = new Bank(data.bank, data.bankmeta);
         });
       });
     </script>

@@ -75,7 +75,19 @@ export class PackerUtils{
             // Extract the sequence file
             if(SeqUtils.isSeqExtension(path)){
               promises.push(file.async("uint8array").then(function(seq){
-                  fileData.seq = seq;    
+                  fileData.seq = seq;
+              }));
+            }
+
+            // Extract the custom bank (if exists)
+            if(path.endsWith(".zbank")){
+              promises.push(file.async("uint8array").then(function(bank){
+                  fileData.bank = bank;
+              }));
+            }
+            if(path.endsWith(".bankmeta")){
+              promises.push(file.async("uint8array").then(function(bankmeta){
+                  fileData.bankmeta = bankmeta;
               }));
             }
 

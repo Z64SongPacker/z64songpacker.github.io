@@ -1,7 +1,4 @@
 
-class BankMeta{
-
-}
 
 /* 
 HOW TO DO THIS
@@ -21,70 +18,116 @@ SO, using these, we should be capable of serializing and deserializing a bank pr
 */
 
 // Type definitions to help with parsing... because javascript doesn't have type definitions to help :c
-class BankDataType{
-    /**
-     * @callback DeserializationCallback
-     * @param {DataView} bank
-     * @param {number} offset
-     * @returns {any}
-     * 
-     * @callback SerializationCallback
-     * @param {DataView} bank
-     * @param {number} offset
-     * @param {any} value
-     * @returns {void}
-     * 
-     * @param {number} size - The length this property uses in bytes
-     * @param {DeserializationCallback} getValue - Deserialization callback
-     * @param {SerializationCallback} setValue - Serialization callback
-     */
-    constructor(size, getValue, setValue){
-        this.size = size;
-        this.getValue = getValue;
-        this.setValue = setValue;
-    }
+class DataType{
+    read(data, offset){ }
+    write(data, offset, value){ }
+    size(){ return 0; }
 }
 
 // The basic types
-const BYTE = new BankDataType(1, (bank, offset) => bank.getUint8(offset), (bank, offset, value) => bank.setUint8(offset, value));
-const SHORT = new BankDataType(2, (bank, offset) => bank.getInt16(offset), (bank, offset, value) => bank.setInt16(offset, value));
-const INT = new BankDataType(4, (bank, offset) => bank.getInt32(offset), (bank, offset, value) => bank.setInt32(offset, value));
-const UINT = new BankDataType(4, (bank, offset) => bank.getUint32(offset), (bank, offset, value) => bank.setUint32(offset, value));
-const FLOAT = new BankDataType(4, (bank, offset) => bank.getFloat32(offset), (bank, offset, value) => bank.setFloat32(offset, value));
-
-// The more complex ones
-
-// Tuned sample includes a sample offset (NOT RELATIVE, this we must get it through a ROM) and it's tuning
-// TODO: THE SAMPLE MAY BE RELATIVE (ABSound) !!!!
-const TUNED_SAMPLE = new BankDataType(8,
-    (bank, offset) => new TunedSample(bank.getUint32(offset), bank.getFloat32(offset+4)),
-    (bank, offset, tunedSample) => {
-        bank.setUint32(offset, tunedSample.sample);
-        bank.setFloat32(offset+4, tunedSample.tuning);
+class BasicDataType extends DataType{
+    constructor(dataType){
+        super();
+        this.dataType = dataType;
     }
-);
-class TunedSample{
-    constructor(sample, tuning){
-        this.sample = sample;
-        this.tuning = tuning;
+    read(data, offset){
+        return data[`get${this.dataType}`](offset);
+    }
+    write(data, offset, value){
+        data[`set${this.dataType}`](offset, value)
+    }
+    size(){
+        return this.dataType.match(/\d+/g)[0] / 8;
     }
 }
+const BYTE = new BasicDataType("Uint8");
+const SHORT = new BasicDataType("Int16");
+const INT = new BasicDataType("Int32");
+const UINT = new BasicDataType("Uint32");
+const FLOAT = new BasicDataType("Float32");
+
+// ================================
 
 // Points to a relative offset of a specific type
-class Offset extends BankDataType {
-    static forType(type){
-        const offsetTypes = {
-            "Envelope": Envelope
-        };
-        var TypeReference = offsetTypes[type];
-        return new BankDataType(4,
-            (bank, offset) => new TypeReference(bank, bank.getUint32(offset)),
-            (bank, offset, value) => {
-                // TODO: WRITE THE ACTUAL OFFSET!
-                //bank.setUint32(offset, tunedSample.sample);
-                //bank.setFloat32(offset+4, tunedSample.tuning);
-            }
-        );
+class Offset extends BasicDataType{
+    constructor(referencedType){
+        super("Uint32");
+        this.referencedType = referencedType;
+    }
+
+    // Reads this object from the data, and adds it to the provided collection inside the main bank object
+    // Also register the collection's id for future referencing
+    resolve(bank, data, offset){
+        // Any offset zero is considered empty
+        if(offset == 0) return;
+
+        var ReferenceType;
+        if(this.referencedType == "Envelope") ReferenceType = Envelope;
+        else if(this.referencedType == "Sample") ReferenceType = Sample;
+        else if(this.referencedType == "Book") ReferenceType = Book;
+        else if(this.referencedType == "Loop") ReferenceType = Loop;
+        var collection = this.referencedType.toLowerCase() + "s"; // Pluralized name of the type
+
+        if(!bank[collection]) bank[collection] = [];
+
+        var id = bank[collection].findIndex(e => e._offset == offset);
+        if(id < 0) {
+            bank[collection].push(new ReferenceType(bank, data, offset));
+            id = bank[collection].length - 1;
+        }
+
+        this.id = id;
+    }
+}
+const ENVELOPE = new Offset("Envelope");
+const SAMPLE = new Offset("Sample");
+const BOOK = new Offset("Book");
+const LOOP = new Offset("Loop");
+
+// Convert a bitfield in with their respective properties
+class BitField extends DataType{
+    constructor(properties){
+        super();
+        this.properties = properties;
+    }
+
+    read(data, offset){
+        var object = {};
+        var bitField = data[`getUint${this.totalSizeInBits}`](offset);
+        var bitOffset = this.totalSizeInBits; // Read backwards, since it's big-endian
+        for(const p of this.properties){
+            var name = p[0];
+            var sizeInBits = p[1];
+            
+            bitOffset -= sizeInBits;
+            object[name] = (bitField >>> bitOffset) & ((1 << sizeInBits) - 1);
+        }
+        //console.log(`bitfield: ${bitField} = ${this.write(data, offset, object)}`);
+        return object;
+    }
+
+    write(data, offset, valueObject){
+        var bitField = 0;
+        var bitOffset = this.totalSizeInBits; // Read backwards, since it's big-endian
+        for(const p of this.properties){
+            var name = p[0];
+            var sizeInBits = p[1];
+            var value = valueObject[name];
+
+            bitOffset -= sizeInBits;
+            var mask = ((1 << sizeInBits) - 1) << bitOffset;
+            bitField = ((bitField & ~mask) | ((value << bitOffset) & mask)) >>> 0;
+        }
+        data[`setUint${this.totalSizeInBits}`](offset, bitField);
+        return bitField;
+    }
+
+    get totalSizeInBits(){
+        return this.properties.reduce((total, current) => total + current[1], 0);
+    }
+
+    size(){
+        return this.totalSizeInBits / 8;
     }
 }
 
@@ -101,10 +144,11 @@ class Offset extends BankDataType {
 
 class BankType {
     /**
-     * @param {DataView} bank
-     * @param {number} offset
+     * @param {Bank} bank - The bank where the information will be stored; needed to resolve offsets
+     * @param {DataView} data - The data source we are reading to create this bank type
+     * @param {number} offset - The offset where this type is located inside the data source
      */
-    constructor(bank, offset) {
+    constructor(bank, data, offset) {
         this._offset = offset;
         var cursor = offset;
 
@@ -114,12 +158,15 @@ class BankType {
             var type = p[1];
 
             // Grab the value using the type and set it to this property
-            var value = type.getValue(bank, cursor);
+            var value = type.read(data, cursor);
             this[name] = value;
             // console.log(`${name} = ${value}`);
 
+            // Resolve any offsets recursively
+            if(type instanceof Offset) type.resolve(bank, data, value);
+
             // Move the cursor using this property's size
-            cursor += type.size;
+            cursor += type.size();
         }
     }
     get properties(){
@@ -139,9 +186,9 @@ class Drum extends BankType{
             ["pan", BYTE],
             ["isRelocated", BYTE],
             ["padding", BYTE],
-            ["tunedSample", TUNED_SAMPLE],
-            //["envelope", UINT]
-            ["envelope", Offset.forType("Envelope")]
+            ["sample", SAMPLE],
+            ["tuning", FLOAT],
+            ["envelope", ENVELOPE]
         ];
     }
 }
@@ -153,10 +200,13 @@ class Instrument extends BankType{
             ["normalRangeLo", BYTE],
             ["normalRangeHi", BYTE],
             ["releaseRate", BYTE], // adsrDecayIndex
-            ["envelope", Offset.forType("Envelope")],
-            ["lowPitchTunedSample", TUNED_SAMPLE],
-            ["normalPitchTunedSample", TUNED_SAMPLE],
-            ["highPitchTunedSample", TUNED_SAMPLE],
+            ["envelope", ENVELOPE],
+            ["lowPitchSample", SAMPLE],
+            ["lowPitchSampleTuning", FLOAT],
+            ["normalPitchSample", SAMPLE],
+            ["normalPitchSampleTuning", FLOAT],
+            ["highPitchSample", SAMPLE],
+            ["highPitchSampleTuning", FLOAT]
         ];
     }
 }
@@ -175,24 +225,72 @@ class EnvelopePoint{
     }
 }
 class Envelope extends BankType{
-    constructor(bank, offset){
-        super(bank, offset);
+    constructor(bank, data, offset){
+        super(bank, data, offset);
         this.points = [];
         var cursor = offset;
 
         do{
-            var delay = bank.getInt16(cursor);
-            var arg = bank.getUint16(cursor + 2);
+            var delay = data.getInt16(cursor);
+            var arg = data.getUint16(cursor + 2);
             this.points.push(new EnvelopePoint(delay, arg));
             if(delay <= 0) break;
             cursor += 4;
         } while(true);
     }
-
     get size(){
         return this.points.length * 4;
     }
 }
+
+class Sample extends BankType{
+    get properties(){
+        return [
+            /* bits 31..28  codec       (0 = ADPCM, 3 = "small" 2-bit ADPCM; others unused here)
+            bits 27..26  medium      (0 = use sampleBank1, 1 = use sampleBank2)
+            bit  25      cached      (0 in music banks)
+            bit  24      isRelocated (must be 0)
+            bits 23..0   size        (byte length of the compressed sample data) */
+            //["bitfield", UINT],
+            ["bitfield", new BitField([
+                ["codec", 4],
+                ["medium", 2],
+                ["cached", 1],
+                ["isRelocated", 1],
+                ["size", 24],
+            ])],
+            ["sampleAddr", UINT],
+            ["loop", LOOP], // <-- TODO: Maybe these 2 not make them offsets, since they are SO dependant on the sample itself...
+            ["book", BOOK]
+        ];
+    }
+}
+
+
+// TODO: THESE TWO MAY NEED CUSTOM TYPES, SAME AS ENVELOPE, SINCE WE ARE GONNA BE EDITING THEM BY ARRAYS
+// Altough, since they are arrays of a single type, it may work with a custom property...
+class Loop extends BankType {
+    get properties(){
+        return [
+            ["start", UINT],
+            ["end", UINT],
+            ["count", UINT],
+            ["numFrames", UINT],
+            // ["predictorState", SHORT] ARRAY BASED ON (count) VARIABLE
+        ];
+    }
+}
+
+class Book extends BankType {
+    get properties(){
+        return [
+            ["order", INT],
+            ["npredictors", INT],
+            // ["book", SHORT] ARRAY BASED ON (8 * order * npredictors) VARIABLE
+        ];
+    }
+}
+
 
 
 // ======================================
@@ -219,9 +317,6 @@ export class Bank {
         if(bank instanceof Uint8Array) bank = new DataView(bank.buffer, bank.byteOffset, bank.byteLength);
         if(bankmeta instanceof Uint8Array) bankmeta = new DataView(bankmeta.buffer, bankmeta.byteOffset, bankmeta.byteLength);
 
-        var cursor = 0;
-        var commands = [];
-
         // BANK META
         // Get all necessary info, since we'll need it to read the bank itself
         this.medium = bankmeta.getUint8(0);
@@ -241,8 +336,7 @@ export class Bank {
         if(drumListOffset != 0){
             for(var i = 0; i < this.numDrums; i++){
                 var drumOffset = bank.getUint32(drumListOffset + (i * 4));
-                var drum = new Drum(bank, drumOffset);
-                this.drums[i] = drum;
+                this.drums[i] = new Drum(this, bank, drumOffset);
             }
         }
 
@@ -257,104 +351,12 @@ export class Bank {
         // This pointer list it's part of the header
         for(var i = 0; i < this.numInstruments; i++){
             var instrumentOffset = bank.getUint32(8 + (i * 4));
-            var instrument = instrumentOffset == 0 ? null : new Instrument(bank, instrumentOffset);
-            this.instruments[i] = instrument;
+            this.instruments[i] = instrumentOffset == 0 ? null : new Instrument(this, bank, instrumentOffset);
         }
-
-        // ENVELOPES
-        // We got these on the Drums and Intruments, so we grab the refereces from there
         
 
         for(var prop in this){
             console.dir(this[prop], { depth: null });
         }
-
-        return;
-
-        // DRUMS
-        var drumListOffset = bank.getUint32(0);
-
-
-        // SFX
-        var sfxListOffset = bank.getUint32(4);
-
-
-        // INSTRUMENTS
-        var instrument ;
-        // um...
-        
-
-
-        drumListOffset, sfxListOffset, instOffsets;
-
-
-
-
-        do{
-            // Get the command by it's ID
-            var id = seq[cursor];
-            var command = this.getCommandDefinition(id);
-
-            // If we do not find it, abort the process!
-            // That means the header is malformed and we can break stuff if we continue.
-            if(command == null){
-                console.error(`ABORTING! Found a non-valid command ${id.toString(16).toUpperCase()} at address ${cursor.toString(16).padStart(4, '0').toUpperCase()} in header. The sequence may be malformed.`)
-                return;
-            }
-
-            var commandString = `${cursor.toString(16).padStart(4, '0').toUpperCase()} ${command[0]}`;
-
-            // Calculate the data length to skip after the command
-            // Check every param and how much space it uses
-            var paramCursor = 0;
-            for(const p of command[2]){
-                var type = p[0];
-                var dataLength = p[1];
-                var value = 0;
-                
-                if(type == "offset"){
-                    // Get the rightmost nibble
-                    value = id % 16;
-
-                } else{
-                    // Get the next byte
-                    // We assume that a fixed or variable param can't be of zero length
-                    // So... we always grab one at least!
-                    value = seq[cursor + paramCursor + 1];
-
-                    if(type == "fixed") dataLength = p[1];
-                    else if(type == "variable") dataLength = (value >= 0x80) ? 2 : 1;
-
-                    // If the param is 2 bytes, combine the value with the next byte
-                    if(dataLength == 2) {
-                        value = (value << 8) | seq[cursor + paramCursor + 2];
-                        if(type == "variable") value -= 0x8000 // Don't forget to remove the var header!
-                    }
-                }
-
-                commandString += ", " + value.toString(16).padStart(2 * dataLength, '0').toUpperCase();
-
-                // Process the params here!
-                // This gives us a lot of options to modify seqs on the go
-                processCommandCallback?.(id, value, cursor + paramCursor + 1);
-
-                // Advance the param cursor by the length of the value
-                // That way, we can grab the next parameter
-                paramCursor += dataLength;
-            }
-
-            // Always move by one extra, since we need to consider the space taken by our own command
-            cursor += 1 + paramCursor;
-
-            // Print in a similar way to seq64
-            if(verbose) console.log(commandString);
-            commands.push(commandString);
-
-            // If we find the end, then stop searching the header
-            if(id == 0xFF) break;
-
-        } while(cursor < seq.length);
-
-        return commands;
     }
 }

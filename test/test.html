@@ -13,6 +13,7 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js"></script>
   </head>
   <body>
     </script>
@@ -27,7 +28,10 @@
         SeqUtils.seqReader(seq, null, true);
       }
 
-      
+      function compareEqualArrays(arr1, arr2){
+        if (arr1.length !== arr2.length) return false;
+        else return arr1.every((value, index) => value === arr2[index])
+      }
 
       $(function(){
         //testLocalSeqFile("Dark Relam.seq");
@@ -44,6 +48,13 @@
           //$("#txtSequence").text(seqOutput.join("\n"));
 
           var bank = new Bank(data.bank, data.bankmeta);
+
+          var outBankMeta = bank.writeBankMeta();
+          var outZBank = bank.writeZBank();
+
+          console.log("COMPARING BANKMETA: " + compareEqualArrays(data.bankmeta, outBankMeta));
+          
+          saveAs(new Blob([outZBank], { type: "application/octet-stream" }), "test.zbank");
         });
       });
     </script>

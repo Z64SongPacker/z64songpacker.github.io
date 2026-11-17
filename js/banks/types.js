@@ -19,7 +19,7 @@ SO, using these, we should be capable of serializing and deserializing a bank pr
 
 // Type definitions to help with parsing... because javascript doesn't have type definitions to help :c
 class DataType{
-    read(data, offset){ }
+    read(data, offset){ return null; }
     write(data, offset, value){ }
     size(){ return 0; }
 }
@@ -37,7 +37,7 @@ class BasicDataType extends DataType{
         data[`set${this.dataType}`](offset, value)
     }
     size(){
-        return this.dataType.match(/\d+/g)[0] / 8;
+        return parseInt(this.dataType.match(/\d+/g)[0]) / 8;
     }
 }
 const BYTE = new BasicDataType("Uint8");
@@ -119,7 +119,6 @@ class BitField extends DataType{
             bitField = ((bitField & ~mask) | ((value << bitOffset) & mask)) >>> 0;
         }
         data[`setUint${this.totalSizeInBits}`](offset, bitField);
-        return bitField;
     }
 
     get totalSizeInBits(){
@@ -128,6 +127,42 @@ class BitField extends DataType{
 
     size(){
         return this.totalSizeInBits / 8;
+    }
+}
+
+// An array of basic properties, the count can be a method for deferred execution
+class Array extends DataType {
+    constructor(dataType, getCount){
+        super();
+        this.dataType = dataType;
+        this.getCount = getCount;
+    }
+
+    read(data, offset){
+        var array = [];
+        for(var i = 0; i < this.count; i++){
+            array.push(data[`get${this.dataType}`](offset + (i * this.dataTypeSize)));
+        }
+        return array;
+    }
+
+    write(data, offset, valueArray){
+        console.log("Writing array " + valueArray);
+        for(var i = 0; i < valueArray.length; i++){
+            data[`set${this.dataType}`](offset + (i * this.dataTypeSize), valueArray[i]);
+        }
+    }
+    
+    size(){
+        return this.count * this.dataTypeSize;
+    }
+    
+    get dataTypeSize(){
+        return parseInt(this.dataType.match(/\d+/g)[0]) / 8;
+    }
+    get count(){
+        if(typeof this.getCount === "function") return this.getCount();
+        else return this.getCount;
     }
 }
 
@@ -169,11 +204,20 @@ class BankType {
             cursor += type.size();
         }
     }
+    write(data, offset){
+        var cursor = offset;
+        for(const p of this.properties){
+            var name = p[0];
+            var type = p[1];
+            type.write(data, cursor, this[name]);
+            cursor += type.size();
+        }
+    }
     get properties(){
         return [];
     }
-    get size(){
-        return this.properties.reduce((total, current) => total + current[1].size, 0);
+    size(){
+        return alignTo16(this.properties.reduce((total, current) => total + current[1].size(), 0));
     }
 }
 
@@ -238,20 +282,23 @@ class Envelope extends BankType{
             cursor += 4;
         } while(true);
     }
-    get size(){
-        return this.points.length * 4;
+    write(data, offset){
+        var cursor = offset;
+        for(var point of this.points){
+            //console.log(`Writing point ${point.delay} | ${point.arg}`);
+            data.setInt16(cursor, point.delay);
+            data.setUint16(cursor + 2, point.arg);
+            cursor += 4;
+        }
+    }
+    size(){
+        return alignTo16(this.points.length * 4);
     }
 }
 
 class Sample extends BankType{
     get properties(){
         return [
-            /* bits 31..28  codec       (0 = ADPCM, 3 = "small" 2-bit ADPCM; others unused here)
-            bits 27..26  medium      (0 = use sampleBank1, 1 = use sampleBank2)
-            bit  25      cached      (0 in music banks)
-            bit  24      isRelocated (must be 0)
-            bits 23..0   size        (byte length of the compressed sample data) */
-            //["bitfield", UINT],
             ["bitfield", new BitField([
                 ["codec", 4],
                 ["medium", 2],
@@ -266,9 +313,6 @@ class Sample extends BankType{
     }
 }
 
-
-// TODO: THESE TWO MAY NEED CUSTOM TYPES, SAME AS ENVELOPE, SINCE WE ARE GONNA BE EDITING THEM BY ARRAYS
-// Altough, since they are arrays of a single type, it may work with a custom property...
 class Loop extends BankType {
     get properties(){
         return [
@@ -276,7 +320,7 @@ class Loop extends BankType {
             ["end", UINT],
             ["count", UINT],
             ["numFrames", UINT],
-            // ["predictorState", SHORT] ARRAY BASED ON (count) VARIABLE
+            ["predictorState", new Array("Int16", () => this.count == 0 ? 0 : 16)]
         ];
     }
 }
@@ -286,7 +330,7 @@ class Book extends BankType {
         return [
             ["order", INT],
             ["npredictors", INT],
-            // ["book", SHORT] ARRAY BASED ON (8 * order * npredictors) VARIABLE
+            ["book", new Array("Int16", () => 8 * this.order * this.npredictors)]
         ];
     }
 }
@@ -296,14 +340,8 @@ class Book extends BankType {
 // ======================================
 
 export class Bank {
-    // Bank meta propeties
-    medium = "";
-    cachePolicy = "";
-    sampleBankId1 = 1;
-    sampleBankId2 = 0;
-    numInstruments = 0;
-    numDrums = 0;
-    numSfx = 0;
+    // The 15 slots!
+    instrumentSlots = [];
 
     // Bank properties
     instruments = [];
@@ -325,10 +363,28 @@ export class Bank {
         this.sampleBankId2 = bankmeta.getUint8(3);
         this.numInstruments = bankmeta.getUint8(4);
         this.numDrums = bankmeta.getUint8(5);
-        this.numSfx = bankmeta.getInt16(6);
+        this.numSfx = bankmeta.getUint16(6);
 
         // ZBANK
         // All offsets over here are relative to the bank, so we can use them directly as offsets for the reading!
+
+        // INSTRUMENTS
+        // This pointer list it's part of the header
+        for(var i = 0; i < this.numInstruments; i++){
+            var instrumentOffset = bank.getUint32(8 + (i * 4));
+            var id = null;
+
+            if(instrumentOffset != 0){
+                var id = this.instruments.findIndex(e => e._offset == instrumentOffset);
+                if(id < 0) {
+                    this.instruments.push(new Instrument(this, bank, instrumentOffset));
+                    id = this.instruments.length - 1;
+                    console.log("Loading instrument from position: " + instrumentOffset.toString(16) + " with size: " + (this.instruments[id]?.size().toString(16)));
+                }
+            }
+            
+            this.instrumentSlots[i] = id;
+        }
 
         // DRUMS
         // This offset points to a sequential list of pointers for each drum
@@ -339,24 +395,121 @@ export class Bank {
                 this.drums[i] = new Drum(this, bank, drumOffset);
             }
         }
-
-        // SFX
-        // This offset points to a sequential list of pointers for each sfx
-        var sfxListOffset = bank.getUint32(4);
-        if(sfxListOffset != 0){
-            // ... TODO: Altough no one uses this thing...
-        }
-
-        // INSTRUMENTS
-        // This pointer list it's part of the header
-        for(var i = 0; i < this.numInstruments; i++){
-            var instrumentOffset = bank.getUint32(8 + (i * 4));
-            this.instruments[i] = instrumentOffset == 0 ? null : new Instrument(this, bank, instrumentOffset);
-        }
         
 
         for(var prop in this){
             console.dir(this[prop], { depth: null });
         }
     }
+
+    writeBankMeta(){
+        var out = new Uint8Array(8);
+        var data = new DataView(out.buffer, out.byteOffset, out.byteLength);
+        data.setUint8(0, this.medium);
+        data.setUint8(1, this.cachePolicy);
+        data.setUint8(2, this.sampleBankId1);
+        data.setUint8(3, this.sampleBankId2);
+        data.setUint8(4, this.numInstruments); // <-- TODO: GRAB THESE FROM THE ARRAYS
+        data.setUint8(5, this.numDrums);
+        data.setUint16(6, this.numSfx);
+        return out;
+    }
+
+    writeZBank(){
+        // First, we calculate their sizes, so we can resolve their offsets properly
+        var drumListOffset = alignTo16(4 + 4 + (this.instrumentSlots.length * 4));
+        var instrumentsOffset = alignTo16(drumListOffset + (this.drums.length * 4));
+        var drumsOffset = instrumentsOffset + this.instruments.filter(i => i).reduce((p, c) => p + c.size(), 0);
+        var envelopesOffset = drumsOffset + this.drums.reduce((p, c) => p + c.size(), 0);
+        var samplesOffset = envelopesOffset + this.envelopes.reduce((p, c) => p + c.size(), 0);
+        var booksOffset = samplesOffset + this.samples.reduce((p, c) => p + c.size(), 0);
+        var loopsOffset = booksOffset + this.books.reduce((p, c) => p + c.size(), 0);
+        var totalSize = loopsOffset + this.loops.reduce((p, c) => p + c.size(), 0);
+        
+        console.log("Building zbank with size " + totalSize);
+        console.log("drumListOffset: " + drumListOffset.toString(16));
+        console.log("instrumentsOffset: " + instrumentsOffset.toString(16));
+        console.log("drumsOffset: " + drumsOffset.toString(16));
+        console.log("envelopesOffset: " + envelopesOffset.toString(16));
+        console.log("samplesOffset: " + samplesOffset.toString(16));
+        console.log("booksOffset: " + booksOffset.toString(16));
+        console.log("loopsOffset: " + loopsOffset.toString(16));
+
+        var out = new Uint8Array(totalSize);
+        var data = new DataView(out.buffer, out.byteOffset, out.byteLength);
+
+        // HEADER
+        data.setUint32(0, drumListOffset); // Drum list offset
+        data.setUint32(4, 0); // SFX list offset
+        for(var i = 0; i < this.instrumentSlots.length; i++){
+            var instrumentIndex = this.instrumentSlots[i];
+            if(instrumentIndex != null){
+                console.log(`Adding instrument slot ${i} with instrument at position ${instrumentIndex} with offset ${this.instruments[instrumentIndex]._offset}`);
+                data.setUint32(8 + (i * 4), this.instruments[instrumentIndex]._offset); // Instrument offsets
+            }
+        }
+
+        // DRUM LIST
+        for(var i = 0; i < this.drums.length; i++){
+            data.setUint32(drumListOffset + (i * 4), this.drums[i]._offset);
+        }
+
+        // SFX LIST
+        // None, we'll not implement it right now
+
+        // INSTRUMENTS
+        for(var instrument of this.instruments){
+            if(instrument){
+                console.log("Adding instrument at position: " + instrumentsOffset.toString(16) + " with size: " + instrument.size().toString(16));
+                instrument.write(data, instrumentsOffset);
+                instrumentsOffset += instrument.size();
+            }
+        }
+
+        // DRUMS
+        for(var drum of this.drums){
+            drum.write(data, drumsOffset);
+            drumsOffset += drum.size();
+        }
+
+        // ENVELOPES
+        for(var envelope of this.envelopes){
+            // console.log("Adding envelope at position: " + envelopesOffset.toString(16));
+            envelope.write(data, envelopesOffset);
+            envelopesOffset += envelope.size();
+
+            // TODO: HERE, RESOLVE ANY OFFSETS!
+        }
+
+        // SAMPLES
+        for(var sample of this.samples){
+            sample.write(data, samplesOffset);
+            samplesOffset += sample.size();
+
+            // TODO: HERE, RESOLVE ANY OFFSETS!
+        }
+
+        // BOOKS
+        for(var book of this.books){
+            console.log("Adding book at position: " + booksOffset.toString(16));
+            book.write(data, booksOffset);
+            booksOffset += book.size();
+
+            // TODO: HERE, RESOLVE ANY OFFSETS!
+        }
+
+        // LOOPS
+        for(var loop of this.loops){
+            loop.write(data, loopsOffset);
+            loopsOffset += loop.size();
+
+            // TODO: HERE, RESOLVE ANY OFFSETS!
+        }
+        
+        return out;
+    }
+}
+
+function alignTo16(value){
+    return Math.ceil(value / 16) * 16;
 }

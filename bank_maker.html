@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html data-bs-theme="dark">
+  <head>
+    <title>Test Area</title>
+
+    <!-- CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+
+    <!-- JQuery -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
+    <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/themes/smoothness/jquery-ui.css" />
+    <script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js"></script>
+    <script src="https://unpkg.com/qwerty-hancock/dist/index.umd.min.js"></script>
+  </head>
+  <body>
+    <style>
+        .piano{
+            width: 100%;
+            display: flex;
+            position: relative;
+            touch-action: none;
+        }
+        .key{
+            cursor: pointer;
+        }
+        .key.white{
+            flex: 1;
+            background-color: white;
+            border: 1px solid black;
+            height: 80px;
+            z-index: 100;
+        }
+        .key.black{
+            position: absolute;
+            background-color: black;
+            height: 50px;
+            width: 0.8%;
+            z-index: 101;
+        }
+        .key.white:hover{
+            background-color: lightgray;
+        }
+    </style>
+
+    <script type="module">
+        import { Bank, Z64Rom } from "./js/bankutils.js";
+
+        var oot = null;
+        var mm = null;
+
+        async function init(){
+            $("#loadingOverlay").removeClass("d-none");
+
+            buildPiano();
+            await loadRom();
+
+            // Load the banks and samples
+            if(oot != null){
+                var rom = new Z64Rom(oot);
+            }
+
+            $("#loadingOverlay").addClass("d-none");
+        }
+
+        async function saveRom(event){
+            $("#loadingOverlay").removeClass("d-none");
+            var file = event.target.files[0];
+            if (navigator.storage && navigator.storage.persist) {
+                await navigator.storage.persist();
+            }
+            const root = await navigator.storage.getDirectory();
+            const fileHandle = await root.getFileHandle('oot.z64', { create: true });
+            const writable = await fileHandle.createWritable();
+            await file.stream().pipeTo(writable);
+            await loadRom();
+            $("#loadingOverlay").addClass("d-none");
+        }
+
+        async function loadRom() {
+            try {
+                const root = await navigator.storage.getDirectory();
+                const fileHandle = await root.getFileHandle('oot.z64');
+                var file = await fileHandle.getFile();
+                oot = new Uint8Array(await file.arrayBuffer());
+
+            } catch (err) {
+                return null;
+            }
+        }
+
+        // ===================================
+
+        function buildPiano(){
+            const blackKeys = [1, 3, 6, 8, 10];
+            $(".piano").empty();
+
+            var whiteKeyIndex = 0;
+            for(var i = 0; i < 128; i++){
+                var isBlack = blackKeys.includes(i % 12);
+                var style = "";
+                
+                //if(isBlack) style = `left: calc((${(whiteKeyIndex + 1)} / 75) * (100% - 32px) - (0.2%))`;
+                if(isBlack) style = `left: calc((${(whiteKeyIndex)} / 75) * 100% - 0.4%)`;
+                else whiteKeyIndex++;
+
+                $(".piano").append(`<div class='key ${(isBlack ? "black" : "white")} note-${i}' style='${style}'></div>`);
+            }
+
+            $(".key").on("click", function(){
+
+                // BEFORE THIS, WE NEED TO GET THE ACTUAL SAMPLES FROM THE ROM AND CACHE THEM !!!
+                return;
+
+                const audioCtx = new AudioContext();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                
+
+
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 1);
+            });
+            console.log("whiteKeyIndex " + whiteKeyIndex);
+        }
+
+
+        // =======================
+
+        $(function(){
+            init();
+
+            // Store ROMs on OPFS so the user doesn't need to re-add it every time
+            $("#fileOoTROM").on("change", saveRom);
+        });
+    </script>
+
+    <nav class="navbar navbar-expand-lg bg-body-tertiary" style="padding-left: 8px; height: 46.5px;">
+      <a class="navbar-brand text-secondary me-2" href="#">Bank maker</a>
+      <span class="mx-1 opacity-25">|</span>
+    </nav>
+
+    <div class="mt-3 px-3">
+      <div class="row g-3">
+        <div class="col-3" id="panelTreeView">
+            <div class="form-group">
+                <label>Ocarina of Time 1.0 ROM:</label>
+                <input type="file" id="fileOoTROM">
+            </div>
+        </div>
+
+        <div class="col-9" id="panelInstrumentView">
+          <div class="card bg-body-tertiary p-3">
+
+            <div class="row g-3 mb-3">
+                <div class="col-4">
+                    <div class="bg-warning-subtle rounded p-3">
+                        <h5 class="text-center">Low split</h5>
+                        <div class="form-group mb-3">
+                            <label>Sample:</label>
+                            <select id="ddlLowPitchSample" class="form-control"></select>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label>Tuning:</label>
+                            <input id="txtLowPitchSampleTuning" class="form-control" />
+                        </div>
+                    </div>
+                </div>
+                <div class="col-4">
+                    <div class="bg-primary-subtle rounded p-3">
+                        <h5 class="text-center">Mid split</h5>
+                        <div class="form-group mb-3">
+                            <label>Sample:</label>
+                            <select id="ddlNormalPitchSample" class="form-control"></select>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label>Tuning:</label>
+                            <input id="txtNormalPitchSampleTuning" class="form-control" />
+                        </div>
+                    </div>
+                </div>
+                <div class="col-4">
+                    <div class="bg-danger-subtle rounded p-3">
+                        <h5 class="text-center">High split</h5>
+                        <div class="form-group mb-3">
+                            <label>Sample:</label>
+                            <select id="ddlHighPitchSample" class="form-control"></select>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label>Tuning:</label>
+                            <input id="txtHighPitchSampleTuning" class="form-control" />
+                        </div>
+                    </div>
+                </div>
+
+                <div id="keyboard mb-3">
+                    <div class="piano"></div>
+                </div>
+            </div>
+            
+
+            
+            
+
+            <div class="form-group">
+                <label>Release rate:</label>
+                <input id="txtInstrumentReleaseRate" class="form-control" />
+            </div>
+            
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </body>
+</html>

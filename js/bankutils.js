@@ -57,7 +57,7 @@ class Offset extends BasicDataType{
 
     // Reads this object from the data, and adds it to the provided collection inside the main bank object
     // Also register the collection's id for future referencing
-    resolve(bank, data, offset){
+    resolve(data, offset, parent){
         // Any offset zero is considered empty
         if(offset == 0) return;
 
@@ -68,12 +68,12 @@ class Offset extends BasicDataType{
         else if(this.referencedType == "Loop") ReferenceType = Loop;
         var collection = this.referencedType.toLowerCase() + "s"; // Pluralized name of the type
 
-        if(!bank[collection]) bank[collection] = [];
+        if(!parent[collection]) parent[collection] = [];
 
-        var id = bank[collection].findIndex(e => e._offset == offset);
+        var id = parent[collection].findIndex(e => e._offset == offset);
         if(id < 0) {
-            bank[collection].push(new ReferenceType(bank, data, offset));
-            id = bank[collection].length - 1;
+            parent[collection].push(new ReferenceType(data, offset, parent));
+            id = parent[collection].length - 1;
         }
 
         this.id = id;
@@ -147,7 +147,6 @@ class Array extends DataType {
     }
 
     write(data, offset, valueArray){
-        console.log("Writing array " + valueArray);
         for(var i = 0; i < valueArray.length; i++){
             data[`set${this.dataType}`](offset + (i * this.dataTypeSize), valueArray[i]);
         }
@@ -177,13 +176,14 @@ class Array extends DataType {
 // - Reading it's full size (respecting padding to 16)
 // - Writing to a dataview
 
-class BankType {
+class RomType {
     /**
-     * @param {Bank} bank - The bank where the information will be stored; needed to resolve offsets
      * @param {DataView} data - The data source we are reading to create this bank type
      * @param {number} offset - The offset where this type is located inside the data source
+     * @param {RomType} parent - The bank where the information will be stored; needed to resolve offsets
      */
-    constructor(bank, data, offset) {
+    constructor(data, offset, parent = null) {
+        //console.log(`===============> Building ${this.constructor.name} with offset ${offset}`);
         this._offset = offset;
         var cursor = offset;
 
@@ -193,12 +193,13 @@ class BankType {
             var type = p[1];
 
             // Grab the value using the type and set it to this property
+            // console.log(`Reading ${name} with offset ${cursor}`);
             var value = type.read(data, cursor);
             this[name] = value;
-            // console.log(`${name} = ${value}`);
+            //console.log(`${name} = ${value}`);
 
             // Resolve any offsets recursively
-            if(type instanceof Offset) type.resolve(bank, data, value);
+            if(type instanceof Offset) type.resolve(data, value, parent);
 
             // Move the cursor using this property's size
             cursor += type.size();
@@ -223,7 +224,7 @@ class BankType {
 
 // =====================================
 
-class Drum extends BankType{
+class Drum extends RomType{
     get properties(){
         return [
             ["releaseRate", BYTE], // adsrDecayIndex
@@ -237,7 +238,7 @@ class Drum extends BankType{
     }
 }
 
-class Instrument extends BankType{
+class Instrument extends RomType{
     get properties(){
         return [
             ["isRelocated", BYTE],
@@ -268,9 +269,9 @@ class EnvelopePoint{
         this.arg = arg;
     }
 }
-class Envelope extends BankType{
-    constructor(bank, data, offset){
-        super(bank, data, offset);
+class Envelope extends RomType{
+    constructor(data, offset, parent){
+        super(data, offset, parent);
         this.points = [];
         var cursor = offset;
 
@@ -296,7 +297,7 @@ class Envelope extends BankType{
     }
 }
 
-class Sample extends BankType{
+class Sample extends RomType{
     get properties(){
         return [
             ["bitfield", new BitField([
@@ -313,7 +314,7 @@ class Sample extends BankType{
     }
 }
 
-class Loop extends BankType {
+class Loop extends RomType {
     get properties(){
         return [
             ["start", UINT],
@@ -325,7 +326,7 @@ class Loop extends BankType {
     }
 }
 
-class Book extends BankType {
+class Book extends RomType {
     get properties(){
         return [
             ["order", INT],
@@ -373,13 +374,14 @@ export class Bank {
         for(var i = 0; i < this.numInstruments; i++){
             var instrumentOffset = bank.getUint32(8 + (i * 4));
             var id = null;
+            //console.log("Loading instrument at offset " + instrumentOffset.toString(16));
 
             if(instrumentOffset != 0){
                 var id = this.instruments.findIndex(e => e._offset == instrumentOffset);
                 if(id < 0) {
-                    this.instruments.push(new Instrument(this, bank, instrumentOffset));
+                    this.instruments.push(new Instrument(bank, instrumentOffset, this));
                     id = this.instruments.length - 1;
-                    console.log("Loading instrument from position: " + instrumentOffset.toString(16) + " with size: " + (this.instruments[id]?.size().toString(16)));
+                    //console.log("Loading instrument from position: " + instrumentOffset.toString(16) + " with size: " + (this.instruments[id]?.size().toString(16)));
                 }
             }
             
@@ -392,14 +394,16 @@ export class Bank {
         if(drumListOffset != 0){
             for(var i = 0; i < this.numDrums; i++){
                 var drumOffset = bank.getUint32(drumListOffset + (i * 4));
-                this.drums[i] = new Drum(this, bank, drumOffset);
+                if(drumOffset != 0){
+                    this.drums[i] = new Drum(bank, drumOffset, this);
+                }
             }
         }
         
 
-        for(var prop in this){
+        /*for(var prop in this){
             console.dir(this[prop], { depth: null });
-        }
+        }*/
     }
 
     writeBankMeta(){
@@ -512,4 +516,142 @@ export class Bank {
 
 function alignTo16(value){
     return Math.ceil(value / 16) * 16;
+}
+
+
+
+// ============================
+
+
+class SampleBank{
+    samples = [];
+    constructor(bytes, offset){
+        this.bytes = bytes;
+        this.offset = offset;
+    }
+}
+
+class DecodedSample{
+    constructor(sampleBankId, offset, size, codec, book, loop){
+        this.sampleBankId = sampleBankId;
+        this.offset = offset;
+        this.size = size;
+        this.codec = codec;
+        this.book = book;
+        this.loop = loop;
+    }
+
+    // TODO: DO DECODING SHENANIGANS
+}
+
+
+// =============================
+
+
+class AudioTableEntry extends RomType{
+    get properties(){
+        return [
+            ["offset", UINT],
+            ["entrySize", UINT],
+            ["medium", BYTE],
+            ["cachePolicy", BYTE],
+            ["data1hi", BYTE],
+            ["data1lo", BYTE],
+            ["data2hi", BYTE],
+            ["data2lo", BYTE],
+            ["data3", SHORT],
+        ];
+    }
+
+    constructor(data, offset, parent){
+        super(data, offset, parent);
+        this.meta = new Uint8Array(data.buffer, data.byteOffset + offset + 8, 8);
+    }
+}
+
+class AudioTable{
+    constructor(rom, offset){
+        var cursor = offset;
+        var numEntries = rom.getInt16(cursor);
+        cursor += 0x10; // Skip the header
+
+        console.log("Loading audiotable: " + numEntries);
+
+        this.entries = [];
+        for(var i = 0; i < numEntries; i++){
+            var entry = new AudioTableEntry(rom, cursor);
+            this.entries.push(entry);
+            cursor += entry.size();
+        }
+    }
+
+    // If the size of the entry is 0, that means it's an alias!
+    resolveAlias(id){
+        var entry = this.entries[id];
+        if(entry.entrySize == 0) return entry.offset;
+        else return id;
+    }
+}
+
+const OOT_TABLES = {
+    banks: { tableOffset: 0xB896A0, dataOffset: 0x00D390 },
+    samples: { tableOffset: 0xB8A1C0, dataOffset: 0x079470 },
+    sequences: { tableOffset: 0xB89AD0, dataOffset: 0x029DE0 }, // Not gonna bother with this one tho...
+};
+const MM_TABLES = {} // TODO: ...
+
+export class Z64Rom{
+    banks = [];
+    sampleBanks = [];
+    samples = [];
+
+    constructor(rom, game){
+        if(rom instanceof Uint8Array) rom = new DataView(rom.buffer, rom.byteOffset, rom.byteLength);
+        var t = game == "mm" ? MM_TABLES : OOT_TABLES;
+
+        // Get the banks
+        this.bankTable = new AudioTable(rom, t.banks.tableOffset);
+        for(var entry of this.bankTable.entries){
+            var bank = new Uint8Array(rom.buffer, t.banks.dataOffset + entry.offset, entry.entrySize);
+            this.banks.push(new Bank(bank, entry.meta));
+        }
+        
+        // Get the sample banks
+        this.sampleTable = new AudioTable(rom, t.samples.tableOffset);
+        for(var entry of this.sampleTable.entries){
+            var sampleBytes = new Uint8Array(rom.buffer, t.samples.dataOffset + entry.offset, entry.entrySize);
+            this.sampleBanks.push(new SampleBank(sampleBytes, entry.offset));
+        }
+
+        // Collect all samples used in the ROM
+        for(var i = 0; i < this.banks.length; i++){
+            var bank = this.banks[i];
+
+            // Get the sample bank
+            var sampleBankId = this.sampleTable.resolveAlias(bank.sampleBankId1); // sampleBankId2 is never used in vanilla
+            if(game == "oot" && bank == 37) sampleBankId = bank.sampleBankId2; // EXCEPT for this bank for some reason (according to oot decomp)
+            var sampleBank = this.sampleBanks[sampleBankId];
+
+            // Search each instrument, drum, and SFX and collect the sample's information
+            for(var sample of bank.samples){
+                if(sampleBank.samples.some(s => s.sampleBankId == sampleBankId && s.offset == sample.sampleAddr)) continue;
+                sampleBank.samples.push(new DecodedSample(
+                    sampleBankId,
+                    sample.sampleAddr,
+                    sample.bitfield.size,
+                    sample.bitfield.codec,
+                    bank.books.find(b => b._offset == sample.book),
+                    bank.loops.find(l => l._offset == sample.loop),
+                ));
+            }
+        }
+
+        for(var prop in this){
+            console.dir(this[prop], { depth: null });
+        }
+    }
+
+    solveAudioTableAlias(id){
+
+    }
 }

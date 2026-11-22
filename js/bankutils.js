@@ -79,10 +79,37 @@ class Offset extends BasicDataType{
         this.id = id;
     }
 }
+
+// Inline combination of sample offset and tuning
+class TunedSample extends Offset{
+    constructor(){
+        super("Sample");
+    }
+    read(data, offset){
+        return {
+          "sample": data.getUint32(offset),
+          "tuning": data.getFloat32(offset + 4) 
+        };
+    }
+    write(data, offset, value){
+        data.setUint32(offset, value.sample);
+        data.setFloat32(offset + 4, value.tuning);
+    }
+    size(){
+        return 8;
+    }
+    resolve(data, tunedSample, parent){
+        super.resolve(data, tunedSample.sample, parent);
+    }
+}
+
 const ENVELOPE = new Offset("Envelope");
 const SAMPLE = new Offset("Sample");
 const BOOK = new Offset("Book");
 const LOOP = new Offset("Loop");
+const TUNED_SAMPLE = new TunedSample();
+
+// ====================================
 
 // Convert a bitfield in with their respective properties
 class BitField extends DataType{
@@ -131,7 +158,7 @@ class BitField extends DataType{
 }
 
 // An array of basic properties, the count can be a method for deferred execution
-class Array extends DataType {
+class BasicDataArray extends DataType {
     constructor(dataType, getCount){
         super();
         this.dataType = dataType;
@@ -183,7 +210,7 @@ class RomType {
      * @param {RomType} parent - The bank where the information will be stored; needed to resolve offsets
      */
     constructor(data, offset, parent = null) {
-        //console.log(`===============> Building ${this.constructor.name} with offset ${offset}`);
+        // console.log(`===============> Building ${this.constructor.name} with offset ${offset}`);
         this._offset = offset;
         var cursor = offset;
 
@@ -193,7 +220,7 @@ class RomType {
             var type = p[1];
 
             // Grab the value using the type and set it to this property
-            // console.log(`Reading ${name} with offset ${cursor}`);
+            //console.log(`Reading ${name} with offset ${cursor}`);
             var value = type.read(data, cursor);
             this[name] = value;
             //console.log(`${name} = ${value}`);
@@ -231,8 +258,7 @@ class Drum extends RomType{
             ["pan", BYTE],
             ["isRelocated", BYTE],
             ["padding", BYTE],
-            ["sample", SAMPLE],
-            ["tuning", FLOAT],
+            ["sample", TUNED_SAMPLE],
             ["envelope", ENVELOPE]
         ];
     }
@@ -246,12 +272,9 @@ class Instrument extends RomType{
             ["normalRangeHi", BYTE],
             ["releaseRate", BYTE], // adsrDecayIndex
             ["envelope", ENVELOPE],
-            ["lowPitchSample", SAMPLE],
-            ["lowPitchSampleTuning", FLOAT],
-            ["normalPitchSample", SAMPLE],
-            ["normalPitchSampleTuning", FLOAT],
-            ["highPitchSample", SAMPLE],
-            ["highPitchSampleTuning", FLOAT]
+            ["lowPitchSample", TUNED_SAMPLE],
+            ["normalPitchSample", TUNED_SAMPLE],
+            ["highPitchSample", TUNED_SAMPLE]
         ];
     }
 }
@@ -321,7 +344,7 @@ class Loop extends RomType {
             ["end", UINT],
             ["count", UINT],
             ["numFrames", UINT],
-            ["predictorState", new Array("Int16", () => this.count == 0 ? 0 : 16)]
+            ["predictorState", new BasicDataArray("Int16", () => this.count == 0 ? 0 : 16)]
         ];
     }
 }
@@ -331,8 +354,55 @@ class Book extends RomType {
         return [
             ["order", INT],
             ["npredictors", INT],
-            ["book", new Array("Int16", () => 8 * this.order * this.npredictors)]
+            ["book", new BasicDataArray("Int16", () => 8 * this.order * this.npredictors)]
         ];
+    }
+
+    // Re-implementation of expand_codebook from the vadpcm decoder
+    // https://github.com/zeldaret/oot/blob/main/tools/audio/sampleconv/src/codec/vadpcm.c#L30
+    expandBook(){
+        var bookData = this.book;
+        var order = this.order;
+        var npredictors = this.npredictors;
+
+        var table = [];
+        var cursor = 0;
+
+        // For each page, create the associated matrix
+        for(var i = 0; i < npredictors; i++){
+            // (8) x (order+8) matrix... Need to create it this way because javascript :P
+            var tableEntry = Array.from({ length: 8 }, () => new Int32Array(order + 8));
+
+            // Fill the first columns of the FIR filter matrix, up to the "order" column
+            for (var j = 0; j < order; j++) {
+                for (var k = 0; k < 8; k++){
+                    tableEntry[k][j] = bookData[cursor];
+                    cursor++;
+                }
+            }
+
+            // For each row fill except the first in the "order" column
+            for (var k = 1; k < 8; k++) {
+                tableEntry[k][order] = tableEntry[k - 1][order - 1];
+            }
+
+            // Place the 1.0 in the first row of the "order" column
+            tableEntry[0][order] = 1 << 11; // 1.0 in qs4.11 fixed point
+
+            // Fill the remaining columns as a shifted-down copy of the previous column, adding 0s as-needed.
+            for (var k = 1; k < 8; k++) {
+                var j = 0;
+                for (; j < k; j++){
+                    tableEntry[j][k + order] = 0;
+                }
+                for (; j < 8; j++){
+                    tableEntry[j][k + order] = tableEntry[j - k][order];
+                }
+            }
+
+            table.push(tableEntry);
+        }
+        return table;
     }
 }
 
@@ -346,6 +416,7 @@ export class Bank {
 
     // Bank properties
     instruments = [];
+    sfx = [];
     drums = [];
     envelopes = [];
     samples = [];
@@ -399,7 +470,18 @@ export class Bank {
                 }
             }
         }
-        
+
+        // SFX
+        // Inline tuned samples... readonly for now
+        var sfxListOffset = bank.getUint32(4);
+        console.log("sfxListOffset " + sfxListOffset.toString(16));
+        if(sfxListOffset != 0){
+            for(var i = 0; i < this.numSfx; i++){
+                var tunedSample = TUNED_SAMPLE.read(bank, sfxListOffset + (i * TUNED_SAMPLE.size()));
+                this.sfx[i] = tunedSample;
+                TUNED_SAMPLE.resolve(bank, tunedSample, this);
+            }
+        }
 
         /*for(var prop in this){
             console.dir(this[prop], { depth: null });
@@ -532,16 +614,114 @@ class SampleBank{
 }
 
 class DecodedSample{
-    constructor(sampleBankId, offset, size, codec, book, loop){
+    constructor(sampleBankId, offset, size, codec, book, loop, sampleData){
         this.sampleBankId = sampleBankId;
         this.offset = offset;
         this.size = size;
         this.codec = codec;
         this.book = book;
         this.loop = loop;
+        this.sampleData = sampleData;
     }
 
-    // TODO: DO DECODING SHENANIGANS
+    // Won't try to pretend I understand properly how the decoding/encoding works
+    // So this is a port (aka shameless copy) of that functionality from decomp
+
+    // Equivalent to vadpcm_dec, but using our properties...
+    // https://github.com/zeldaret/oot/blob/main/tools/audio/sampleconv/src/codec/vadpcm.c#L1193
+    decodeVadpcm(){
+        var coefTable = this.book.expandBook();
+
+        var state = new Int32Array(16);
+        var inPos = 0;
+        var nSamples = this.loop.end;
+        var frameSize = (this.codec == 3) ? 5 : 9;
+
+        var inputBuffer = this.sampleData;
+        var outputBuffer = new Int16Array(Math.floor(inputBuffer.length / frameSize) * 16);
+
+        for(var frameNumber = 0; frameNumber * 16 < nSamples; frameNumber++){
+            var input = inputBuffer.subarray(inPos, inPos + frameSize);
+            inPos += frameSize;
+
+            // Initial decode using the standard decode
+            this.decodeFrame(input, state, this.book.order, coefTable, frameSize);
+
+            // Create a guess from that, by clamping to 16 bits
+            // We copy directly to the output, since we will not do matching
+            for (var i = 0; i < 16; i++){
+                outputBuffer[frameNumber * 16 + i] = Math.max(-32768, Math.min(32767, state[i]));
+            }
+        }
+
+        return outputBuffer.subarray(0, Math.min(nSamples, outputBuffer.length));
+    }
+
+    decodeFrame(frame, state, order, coefTable, frameSize){        
+        var header = frame[0];
+        var scale = 1 << ((header >> 4) & 0xF);
+        var optimalp = (header >> 0) & 0xF;
+        var ix = new Int32Array(16);
+
+        // Unpack
+        if (frameSize == 5) {
+            for (var i = 0; i < 16; i += 4) {
+                var c = frame[1 + i / 4];
+                ix[i + 0] = (c >> 6) & 0b11;
+                ix[i + 1] = (c >> 4) & 0b11;
+                ix[i + 2] = (c >> 2) & 0b11;
+                ix[i + 3] = (c >> 0) & 0b11;
+            }
+        } else {
+            for (var i = 0; i < 16; i += 2) {
+                var c = frame[1 + i / 2];
+                ix[i + 0] = (c >> 4) & 0xF;
+                ix[i + 1] = (c >> 0) & 0xF;
+            }
+        }
+
+        // Sign-extend and scale
+        for (var i = 0; i < 16; i++) {
+            if (frameSize == 5) {
+                if (ix[i] >= 2) // 2-bit sign extension
+                    ix[i] -= 4;
+            } else {
+                if (ix[i] >= 8) // 4-bit sign extension
+                    ix[i] -= 16;
+            }
+            ix[i] *= scale;
+        }
+
+        var coefPage = coefTable[optimalp];
+
+        // Matrix multiplication with FIR filter matrix associated with the book page, the matrix operates on
+        // 8 samples simultaneously so this needs to be done twice for all 16 samples in the output frame.
+        for (var j = 0; j < 2; j++) {
+            var inVec = new Int32Array(16);
+
+            for (var i = 0; i < order; i++){
+                inVec[i] = state[(2 - j) * 8 - order + i];
+            }
+
+            for (var i = 0; i < 8; i++) {
+                var ind = j * 8 + i;
+
+                inVec[order + i] = ix[ind];
+                state[ind] = this.innerProduct(order + i, coefPage[i], inVec) + ix[ind];
+            }
+        }
+    }
+
+    innerProduct(length, v1, v2) {
+        var out = 0;
+        for(var i = 0; i < length; i++){
+            out += v1[i] * v2[i];
+        }
+
+        // Compute "out / 2^11", rounded down.
+        return Math.floor(out / 2048);
+    }
+
 }
 
 
@@ -603,7 +783,6 @@ const MM_TABLES = {} // TODO: ...
 export class Z64Rom{
     banks = [];
     sampleBanks = [];
-    samples = [];
 
     constructor(rom, game){
         if(rom instanceof Uint8Array) rom = new DataView(rom.buffer, rom.byteOffset, rom.byteLength);
@@ -642,6 +821,7 @@ export class Z64Rom{
                     sample.bitfield.codec,
                     bank.books.find(b => b._offset == sample.book),
                     bank.loops.find(l => l._offset == sample.loop),
+                    new Uint8Array(sampleBank.bytes.buffer, sampleBank.bytes.byteOffset + sample.sampleAddr, sample.bitfield.size)
                 ));
             }
         }
@@ -649,9 +829,5 @@ export class Z64Rom{
         for(var prop in this){
             console.dir(this[prop], { depth: null });
         }
-    }
-
-    solveAudioTableAlias(id){
-
     }
 }

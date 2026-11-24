@@ -1,21 +1,4 @@
-
-
-/* 
-HOW TO DO THIS
-
-There exists the following BASE types:
-- u8   - BYTE
-- u32  - INT
-- s16  - SIGNED_SHORT
-- s32  - SIGNED_INT
-- f32  - FLOAT
-
-Then, there are special types that use combinations of these as a backbone
-- OFFSET (u32) - Points to another struct within the bank; should store it's type to pick it up afterwards
-- TUNED_SAMPLE (u32+f32) - Offset of a sample + it's tuning
-
-SO, using these, we should be capable of serializing and deserializing a bank proper
-*/
+import { OOT_DESC } from "./bank/oot.js";
 
 // Type definitions to help with parsing... because javascript doesn't have type definitions to help :c
 class DataType{
@@ -277,6 +260,10 @@ class Instrument extends RomType{
             ["highPitchSample", TUNED_SAMPLE]
         ];
     }
+
+    get name(){
+        return this.displayName || ("Instrument 0x" + this._offset.toString(16).toUpperCase());
+    }
 }
 
 // Envelopes contains an array of points: delay + arg
@@ -297,7 +284,6 @@ class Envelope extends RomType{
         super(data, offset, parent);
         this.points = [];
         var cursor = offset;
-
         do{
             var delay = data.getInt16(cursor);
             var arg = data.getUint16(cursor + 2);
@@ -318,12 +304,15 @@ class Envelope extends RomType{
     size(){
         return alignTo16(this.points.length * 4);
     }
+    get name(){
+        return this.displayName || `Envelope ${this._offset}`;
+    }
 }
 
 class Sample extends RomType{
     get properties(){
         return [
-            ["bitfield", new BitField([
+            ["header", new BitField([
                 ["codec", 4],
                 ["medium", 2],
                 ["cached", 1],
@@ -411,10 +400,7 @@ class Book extends RomType {
 // ======================================
 
 export class Bank {
-    // The 15 slots!
     instrumentSlots = [];
-
-    // Bank properties
     instruments = [];
     sfx = [];
     drums = [];
@@ -594,6 +580,10 @@ export class Bank {
         
         return out;
     }
+
+    get name(){
+        return this.displayName || "Bank";
+    }
 }
 
 function alignTo16(value){
@@ -630,6 +620,8 @@ class DecodedSample{
     // Equivalent to vadpcm_dec, but using our properties...
     // https://github.com/zeldaret/oot/blob/main/tools/audio/sampleconv/src/codec/vadpcm.c#L1193
     decodeVadpcm(){
+        if(this.decodedBuffer) return this.decodedBuffer;
+
         var coefTable = this.book.expandBook();
 
         var state = new Int32Array(16);
@@ -654,7 +646,8 @@ class DecodedSample{
             }
         }
 
-        return outputBuffer.subarray(0, Math.min(nSamples, outputBuffer.length));
+        this.decodedBuffer = outputBuffer.subarray(0, Math.min(nSamples, outputBuffer.length));
+        return this.decodedBuffer;
     }
 
     decodeFrame(frame, state, order, coefTable, frameSize){        
@@ -722,6 +715,9 @@ class DecodedSample{
         return Math.floor(out / 2048);
     }
 
+    get name (){
+        return this.displayName || `Sample [${this.sampleBankId}] ${this.offset}`;
+    }
 }
 
 
@@ -773,26 +769,21 @@ class AudioTable{
     }
 }
 
-const OOT_TABLES = {
-    banks: { tableOffset: 0xB896A0, dataOffset: 0x00D390 },
-    samples: { tableOffset: 0xB8A1C0, dataOffset: 0x079470 },
-    sequences: { tableOffset: 0xB89AD0, dataOffset: 0x029DE0 }, // Not gonna bother with this one tho...
-};
-const MM_TABLES = {} // TODO: ...
-
 export class Z64Rom{
     banks = [];
     sampleBanks = [];
 
     constructor(rom, game){
         if(rom instanceof Uint8Array) rom = new DataView(rom.buffer, rom.byteOffset, rom.byteLength);
-        var t = game == "mm" ? MM_TABLES : OOT_TABLES;
+        this.desc = OOT_DESC; //  game == "mm" ? MM_DESC : OOT_DESC;
+        const d = this.desc;
+        const t = this.desc.tables;
 
         // Get the banks
         this.bankTable = new AudioTable(rom, t.banks.tableOffset);
         for(var entry of this.bankTable.entries){
             var bank = new Uint8Array(rom.buffer, t.banks.dataOffset + entry.offset, entry.entrySize);
-            this.banks.push(new Bank(bank, entry.meta));
+            this.banks.push(new Bank(bank, entry.meta, this.desc));
         }
         
         // Get the sample banks
@@ -803,13 +794,22 @@ export class Z64Rom{
         }
 
         // Collect all samples used in the ROM
+        // Also set the metadata from the ROM's descriptor
         for(var i = 0; i < this.banks.length; i++){
             var bank = this.banks[i];
+            var bankMetadata = d.banks[i];
+            bank.displayName = bankMetadata?.name;
 
             // Get the sample bank
             var sampleBankId = this.sampleTable.resolveAlias(bank.sampleBankId1); // sampleBankId2 is never used in vanilla
             if(game == "oot" && bank == 37) sampleBankId = bank.sampleBankId2; // EXCEPT for this bank for some reason (according to oot decomp)
             var sampleBank = this.sampleBanks[sampleBankId];
+            sampleBank.displayName = d.sampleBanks[sampleBankId]?.name;
+
+            // Set instrument metadata
+            for(var f = 0; f < bank.instruments.length; f++){
+                if(bankMetadata) bank.instruments[f].displayName = bankMetadata.instruments[f];
+            }
 
             // Search each instrument, drum, and SFX and collect the sample's information
             for(var sample of bank.samples){
@@ -817,11 +817,11 @@ export class Z64Rom{
                 sampleBank.samples.push(new DecodedSample(
                     sampleBankId,
                     sample.sampleAddr,
-                    sample.bitfield.size,
-                    sample.bitfield.codec,
+                    sample.header.size,
+                    sample.header.codec,
                     bank.books.find(b => b._offset == sample.book),
                     bank.loops.find(l => l._offset == sample.loop),
-                    new Uint8Array(sampleBank.bytes.buffer, sampleBank.bytes.byteOffset + sample.sampleAddr, sample.bitfield.size)
+                    new Uint8Array(sampleBank.bytes.buffer, sampleBank.bytes.byteOffset + sample.sampleAddr, sample.header.size)
                 ));
             }
         }
@@ -829,5 +829,17 @@ export class Z64Rom{
         for(var prop in this){
             console.dir(this[prop], { depth: null });
         }
+    }
+
+    findInstrumentSample(bank, instrument, zone){
+        var sample = bank.samples.find(s => s._offset == instrument[`${zone}PitchSample`].sample);
+        if(sample == null) return null;
+        // TODO: CHECK MEDIUM TO SEE WHICH SAMPLE BANK TO USE
+        return this.findDecodedSample(bank.sampleBankId1, sample.sampleAddr);
+    }
+
+    findDecodedSample(sampleBankId, sampleAddr){
+        var solvedSampleBankId = this.sampleTable.resolveAlias(sampleBankId);
+        return this.sampleBanks[solvedSampleBankId].samples.find(s => s.offset == sampleAddr);
     }
 }

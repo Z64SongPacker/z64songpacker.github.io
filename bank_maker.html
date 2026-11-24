@@ -6,6 +6,8 @@
     <!-- CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+    <link rel="stylesheet" type="text/css" href="css/z64_song_packer.css" />
+    <link rel="stylesheet" type="text/css" href="css/z64_bank_maker.css" />
 
     <!-- JQuery -->
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
@@ -24,33 +26,70 @@
             position: relative;
             touch-action: none;
         }
+
         .key{
             cursor: pointer;
-        }
-        .key.white{
-            flex: 1;
-            background-color: white;
             border: 1px solid black;
+        }
+
+        .key-white{
+            flex: 1;
+            color: white;
+            background-color: currentColor;
             height: 80px;
             z-index: 100;
         }
-        .key.black{
+        .key-black{
             position: absolute;
-            background-color: black;
+            color: black;
+            background-color: currentColor;
             height: 50px;
             width: 0.8%;
             z-index: 101;
         }
-        .key.white:hover{
-            background-color: lightgray;
+
+        .key-white.zone-low{
+            color: color-mix(in srgb, white 70%, var(--bs-warning));
         }
+        .key-black.zone-low{
+            color: color-mix(in srgb, black 70%, var(--bs-warning));
+        }
+
+        .key-white.zone-normal{
+            color: color-mix(in srgb, white 70%, var(--bs-primary));
+        }
+        .key-black.zone-normal{
+            color: color-mix(in srgb, black 70%, var(--bs-primary));
+        }
+
+        .key-white.zone-high{
+            color: color-mix(in srgb, white 70%, var(--bs-danger));
+        }
+        .key-black.zone-high{
+            color: color-mix(in srgb, black 70%, var(--bs-danger));
+        }
+
+        .key-white:hover{
+            background-color: color-mix(in srgb, currentColor 90%, black);
+        }
+        .key-black:hover{
+            background-color: color-mix(in srgb, currentColor 75%, white);
+        }
+        
     </style>
 
     <script type="module">
         import { Bank, Z64Rom } from "./js/bankutils.js";
+        const ctx = new AudioContext();
+        const voices = new Map();
 
         var oot = null;
+        var ootRom = null;
+        
         var mm = null;
+        var mmRom = null;
+
+        var bank = null;
 
         async function init(){
             $("#loadingOverlay").removeClass("d-none");
@@ -58,21 +97,11 @@
             await loadRom();
 
             // Load the banks and samples
-            var rom = null;
-            if(oot != null){
-                rom = new Z64Rom(oot);
-            }
+            if(oot != null) ootRom = new Z64Rom(oot);
 
-            // Load a sample
-            // 3093248 - Glockenspiel 
-            // 3395888 - Pizz
-            // 2948832 - Piano
-            // 3077712 - Harp
-            var pcm = rom.sampleBanks[0].samples.find(s => s.offset == 3077712).decodeVadpcm();
-            console.log(pcm);
-
-            // Build the piano
-            buildPiano(pcm);
+            // Load main orchestra
+            bank = ootRom.banks[2];
+            await loadBank();
 
             $("#loadingOverlay").addClass("d-none");
         }
@@ -105,46 +134,209 @@
 
         // ===================================
 
-        const ctx = new AudioContext();
+        function buildSelector(index, name){
+            return `<div class="btn-file row g-0">
+                        <span class="col-auto me-3 opacity-25" style="margin-left: .3rem"><i class="fa-solid fa-rotate-90 fa-arrow-turn-up"></i></span>
+                        <span class="col-auto opacity-50" style="width: 20px">[${index}]</span>
+                        <span class="col ms-3">${name}</span>
+                    </div>`;
+        }
 
-        function buildPiano(pcm){
+        async function loadBank(){
+            hideAllViews();
+            $("#panelBankView").removeClass("d-none");
+            $("#titleBankName").text(bank.name + " | Header");
+
+            // Load the instruments for the sidebar
+            $("#collapseInstruments").empty();
+            bank.instruments.forEach((inst, i) => $(`#collapseInstruments`).append(buildSelector(i, inst.name)));
+
+            // Load the decoded samples, for easy finding afterwards
+            // No manual editing of books or loops >:I
+            $("#collapseSamples").empty();
+            bank.samples.forEach((sample, i) => {
+                var decodedSample = ootRom.findDecodedSample(bank.sampleBankId1, sample.sampleAddr);
+                $(`#collapseSamples`).append(buildSelector(i, decodedSample.name));
+            });
+
+            // Load the envelopes
+            $("#collapseEnvelopes").empty();
+            bank.envelopes.forEach((env, i) => $(`#collapseEnvelopes`).append(buildSelector(i, env.name)));
+
+            $("#panelInstrumentSelector").empty();
+            bank.instrumentSlots.forEach((instrumentIndex, i) => {
+                var instrument = bank.instruments[instrumentIndex];
+
+                $("#panelInstrumentSelector").append(
+                    `<div class="row align-items-center g-3 px-3">
+                        <b class="mb-0 col-auto" style="width: 70px">Slot ${i}</b>
+                        <div class="col">
+                            <select id="ddlInstrumentSlot${i}" class="form-control"></select>
+                        </div>
+                        <i id="btnEditInstrumentSlot${i}" class="icon-button col-auto fa-solid fa-edit" title="Edit this instrument"></i>
+                        <i id="btnRemoveInstrumentSlot${i}" class="icon-button col-auto fa-solid fa-minus" title="Remove this insturment slot"></i>
+                    </div>
+                    <hr class="my-2">`
+                );
+                
+                // Build the selector
+                $(`#ddlInstrumentSlot${i}`).append("<option value=''>None</option>");
+                for(var inst of bank.instruments){
+                    $(`#ddlInstrumentSlot${i}`).append(`<option value="${inst._offset}">${inst.name}</option>`);
+                }
+                $(`#ddlInstrumentSlot${i}`).val(instrument?._offset);
+
+
+                $(`#btnEditInstrumentSlot${i}`).on("click", function(){
+                    loadInstrumentView($(`#ddlInstrumentSlot${i}`).val());
+                });
+            });
+
+
+        }
+
+        async function loadInstrumentView(offset){
+            var instrument = bank.instruments.find((i) => i._offset == offset);
+            if(!instrument) return; // TODO: errors!
+
+            hideAllViews();
+            $("#panelInstrumentView").removeClass("d-none");
+            $("#titleInstrumentName").text(instrument.name);
+
+            $("#btnLowPitchSample").text(ootRom.findInstrumentSample(bank, instrument, "low")?.name || "None");
+            $("#btnNormalPitchSample").text(ootRom.findInstrumentSample(bank, instrument, "normal")?.name || "None");
+            $("#btnHighPitchSample").text(ootRom.findInstrumentSample(bank, instrument, "high")?.name || "None");
+
+            $("#txtLowPitchSampleTuning").val(instrument.lowPitchSample.tuning);
+            $("#txtNormalPitchSampleTuning").val(instrument.normalPitchSample.tuning);
+            $("#txtHighPitchSampleTuning").val(instrument.highPitchSample.tuning);
+
+            $("#txtLowSplit").val(instrument.normalRangeLo);
+            $("#txtHighSplit").val(instrument.normalRangeHi);
+            $("#txtInstrumentReleaseRate").val(instrument.releaseRate);
+        
+            buildPiano(instrument);
+        }
+
+        function hideAllViews(){
+            $("#panelBankView, #panelInstrumentView").addClass("d-none");
+        }
+
+        function buildPiano(instrument){
             const blackKeys = [1, 3, 6, 8, 10];
             $(".piano").empty();
 
+            // Add the keys
             var whiteKeyIndex = 0;
             for(var i = 0; i < 128; i++){
                 var isBlack = blackKeys.includes(i % 12);
                 var style = "";
-                
-                //if(isBlack) style = `left: calc((${(whiteKeyIndex + 1)} / 75) * (100% - 32px) - (0.2%))`;
                 if(isBlack) style = `left: calc((${(whiteKeyIndex)} / 75) * 100% - 0.4%)`;
                 else whiteKeyIndex++;
 
-                $(".piano").append(`<div class='key ${(isBlack ? "black" : "white")} note-${i}' style='${style}'></div>`);
-            }
-            
-            const buffer = ctx.createBuffer(1, pcm.length, 32000);   // always 32 kHz, like the game
-            const ch = buffer.getChannelData(0);
-            for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+                var color = isBlack ? "key-black" : "key-white";
+                var zone = "normal";
+                if(i < instrument.normalRangeLo) zone = "low";
+                else if(i > instrument.normalRangeHi) zone = "high";
+                
+                // TODO: Also show the tuning limit
 
-            $(".key").on("click", function(){
-                var midi = 60;
-                var isDrumOrSfx = false;
-                var tuning = 1;
+                $(".piano").append(`<div class='key ${color} zone-${zone}' style='${style}' data-midi="${i}" data-zone="${zone}"></div>`);
+            }
+
+            // Get the samples
+            $(".key").on("pointerdown", function(){
+                var midi = $(this).attr("data-midi");
+                var zone = $(this).attr("data-zone");
+                var isDrum = false;
+                var tuning = Number($(`#txt${capitalizeFirstLetter(zone)}PitchSampleTuning`).val());
+                var rate = isDrum ? tuning : tuning * 2 ** ((midi - 60) / 12);
+
+                var decodedSample = ootRom.findInstrumentSample(bank, instrument, zone);
+                var pcm = decodedSample.decodeVadpcm();
+                
+                const buffer = ctx.createBuffer(1, pcm.length, 32000);   // always 32 kHz, like the game
+                const ch = buffer.getChannelData(0);
+                for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
 
                 const src = ctx.createBufferSource();
                 src.buffer = buffer;
-                src.playbackRate.value = isDrumOrSfx ? tuning : tuning * 2 ** ((midi - 60) / 12);
-                /*if (loop.count !== 0) {
-                src.loop = true;
-                src.loopStart = loop.start / 32000;   // buffer is 32 kHz, so samples / 32000 = seconds
-                src.loopEnd   = loop.end   / 32000;
-                }*/
-                src/*.connect(envelopeGain)*/.connect(ctx.destination);
-                src.start();
+                src.playbackRate.value = Math.min(rate, 3.99996); // 4 or more gets clamped, that's an engine limit
+
+                // Do loops
+                if (decodedSample.loop.count !== 0) {
+                    src.loop = true;
+                    src.loopStart = decodedSample.loop.start / 32000;
+                    src.loopEnd = decodedSample.loop.end / 32000;
+                }
+
+                // TODO: ENVELOPES
+                const gain = ctx.createGain();
+                gain.gain.value = 1;
+
+                // Start and register this voice
+                src.connect(gain).connect(ctx.destination);
+                src.start();                
+                src.onended = () => { if (voices.get(midi)?.src === src) voices.delete(midi); };
+                voices.set(midi, {src, gain});
+            });
+
+            $(".key").on("pointerup pointerleave pointercancel", function(){
+                var midi = $(this).attr("data-midi");
+                var releaseRate = Number($("#txtInstrumentReleaseRate").val());
+
+                const v = voices.get(midi);
+                if (!v || releaseRate == 0) return;
+                voices.delete(midi);
+
+                const now = ctx.currentTime;
+                const gain = v.gain.gain;
+                const decaySeconds = Math.max(0.005, gain.value * calculateDecay(releaseRate) / 60);
+
+                gain.cancelScheduledValues(now);
+                gain.setValueAtTime(gain.value, now);
+                gain.linearRampToValueAtTime(0, now + decaySeconds);
+                v.src.stop(now + decaySeconds + 0.01);
             });
         }
+    
+        // Imitate the decay table that exists in the vanilla engine for accuracy
+        // https://github.com/zeldaret/oot/blob/main/src/audio/internal/heap.c#L34
+        function calculateDecay(releaseRate){
+            if(releaseRate >= 255) return 0.25;
+            else if(releaseRate == 254) return 0.33;
+            else if(releaseRate == 253) return 0.5;
+            else if(releaseRate == 252) return 0.66;
+            else if(releaseRate == 251) return 0.75;
+            else if(releaseRate >= 128) return 251 - releaseRate;
+            else if(releaseRate >= 16) return 4 * (143 - releaseRate);
+            else if(releaseRate >= 1) return 60 * (23 - releaseRate);
+            else return 0;
+        }
 
+        // Build sample information from the form for playback for the current instrument
+        /*function pickSample(midi){
+            return {
+                buffer: ,
+                
+            };
+        }*/
+
+        function noteOn(midi){
+            noteOff(midi);
+            var sample = pickSample(midi);
+        }
+
+        function noteOff(midi){
+
+        }
+
+
+        // =======================
+
+        function capitalizeFirstLetter(val) {
+            return String(val).charAt(0).toUpperCase() + String(val).slice(1);
+        }
 
         // =======================
 
@@ -153,86 +345,140 @@
 
             // Store ROMs on OPFS so the user doesn't need to re-add it every time
             $("#fileOoTROM").on("change", saveRom);
+            $("#btnBackToMain").on("click", loadBank);
         });
     </script>
 
-    <nav class="navbar navbar-expand-lg bg-body-tertiary" style="padding-left: 8px; height: 46.5px;">
-      <a class="navbar-brand text-secondary me-2" href="#">Bank maker</a>
-      <span class="mx-1 opacity-25">|</span>
-    </nav>
-
-    <div class="mt-3 px-3">
-      <div class="row g-3">
-        <div class="col-3" id="panelTreeView">
-            <div class="form-group">
+    <div class="">
+      <div class="row g-0">
+        <div class="col-3 overflow-y-auto overflow-x-hidden" id="viewTree">
+            <!--<div class="form-group">
                 <label>Ocarina of Time 1.0 ROM:</label>
                 <input type="file" id="fileOoTROM">
+            </div>-->
+
+            <h5>Bank Name</h5>
+            <hr>
+
+            <div id="btnHeader" class="btn-folder row align-items-center">
+                <i class="col-auto fa-solid fa-folder mx-2"></i>
+                <b class="col text-left">Header</b>
             </div>
+            
+            <div id="btnInstruments" class="btn-folder row align-items-center">
+                <i class="col-auto fa-solid fa-folder mx-2"></i>
+                <b class="col text-left">Instruments</b>
+                <i class="col-auto fa-solid fa-caret-down me-2 mt-1"></i>
+            </div>
+            <div id="collapseInstruments" class="collapse show"></div>
+
+            <div id="btnDrums" class="btn-folder row align-items-center">
+                <i class="col-auto fa-solid fa-folder mx-2"></i>
+                <b class="col text-left">Drums</b>
+            </div>
+
+            <div id="btnSamples" class="btn-folder row align-items-center">
+                <i class="col-auto fa-solid fa-folder mx-2"></i>
+                <b class="col text-left">Samples</b>
+                <i class="col-auto fa-solid fa-caret-down me-2 mt-1"></i>
+            </div>
+            <div id="collapseSamples" class="collapse show"></div>
+
+            <div id="btnEnvelopes" class="btn-folder row align-items-center">
+                <i class="col-auto fa-solid fa-folder mx-2"></i>
+                <b class="col text-left">Envelopes</b>
+                <i class="col-auto fa-solid fa-caret-down me-2 mt-1"></i>
+            </div>
+            <div id="collapseEnvelopes" class="collapse show"></div>
         </div>
 
-        <div class="col-9" id="panelInstrumentView">
-          <div class="card bg-body-tertiary p-3">
+        <div class="col-9 overflow-y-auto overflow-x-hidden bg-body-tertiary" id="viewObject">
+            <!-- BANK/HEADER VIEW -->
+            <div id="panelBankView" class="p-3">
+                <h5 id="titleBankName" class="mb-0">Bank name</h5>
+                <hr>
 
-            <div class="row g-3 mb-3">
-                <div class="col-4">
-                    <div class="bg-warning-subtle rounded p-3">
-                        <h5 class="text-center">Low split</h5>
-                        <div class="form-group mb-3">
-                            <label>Sample:</label>
-                            <select id="ddlLowPitchSample" class="form-control"></select>
-                        </div>
-                        <div class="form-group mb-3">
-                            <label>Tuning:</label>
-                            <input id="txtLowPitchSampleTuning" class="form-control" />
-                        </div>
-                    </div>
-                </div>
-                <div class="col-4">
-                    <div class="bg-primary-subtle rounded p-3">
-                        <h5 class="text-center">Mid split</h5>
-                        <div class="form-group mb-3">
-                            <label>Sample:</label>
-                            <select id="ddlNormalPitchSample" class="form-control"></select>
-                        </div>
-                        <div class="form-group mb-3">
-                            <label>Tuning:</label>
-                            <input id="txtNormalPitchSampleTuning" class="form-control" />
-                        </div>
-                    </div>
-                </div>
-                <div class="col-4">
-                    <div class="bg-danger-subtle rounded p-3">
-                        <h5 class="text-center">High split</h5>
-                        <div class="form-group mb-3">
-                            <label>Sample:</label>
-                            <select id="ddlHighPitchSample" class="form-control"></select>
-                        </div>
-                        <div class="form-group mb-3">
-                            <label>Tuning:</label>
-                            <input id="txtHighPitchSampleTuning" class="form-control" />
-                        </div>
-                    </div>
-                </div>
-
-                <div id="keyboard mb-3">
-                    <div class="piano"></div>
+                <h5>Instrument slots:</h5>
+                <div class="card bg-body-secondary py-2">
+                    <div id="panelInstrumentSelector"></div>
+                    <button id="btnAddNewInstrumentSlot" class="btn"><i class="fa-solid fa-plus me-2"></i>Add new instrument slot</button>
                 </div>
             </div>
-            
 
-            
-            
+            <div id="panelInstrumentView" class="p-3 d-none">
+                <div class="row align-items-center">
+                    <i id="btnBackToMain" class="col-auto icon-button fa-lg fa-solid fa-arrow-left"></i>
+                    <h4 id="titleInstrumentName" class="col">Instrument name</h4>
+                </div>
+                <hr>
+                <div class="row g-3 mb-3">
+                    <div class="col-4">
+                        <div class="border border-warning-subtle bg-warning-subtle rounded p-3">
+                            <h5 class="text-center">Low pitch sample</h5>
+                            <div class="form-group mb-3">
+                                <label>Sample:</label>
+                                <button type="button" id="btnLowPitchSample" class="form-control">None</button>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label>Tuning:</label>
+                                <input id="txtLowPitchSampleTuning" class="form-control" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="border border-primary-subtle bg-primary-subtle rounded p-3">
+                            <h5 class="text-center">Normal pitch sample</h5>
+                            <div class="form-group mb-3">
+                                <label>Sample:</label>
+                                <button type="button" id="btnNormalPitchSample" class="form-control">None</button>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label>Tuning:</label>
+                                <input id="txtNormalPitchSampleTuning" class="form-control" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="border border-danger-subtle bg-danger-subtle rounded p-3">
+                            <h5 class="text-center">High pitch sample</h5>
+                            <div class="form-group mb-3">
+                                <label>Sample:</label>
+                                <button type="button" id="btnHighPitchSample" class="form-control">None</button>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label>Tuning:</label>
+                                <input id="txtHighPitchSampleTuning" class="form-control" />
+                            </div>
+                        </div>
+                    </div>
 
-            <div class="form-group">
-                <label>Release rate:</label>
-                <input id="txtInstrumentReleaseRate" class="form-control" />
+                    <div class="col-6">
+                        <div class="form-group mb-3">
+                            <label>Low split:</label>
+                            <input type="number" id="txtLowSplit" class="form-control">
+                        </div>
+                    </div>
+
+                    <div class="col-6">
+                        <div class="form-group mb-3">
+                            <label>High split:</label>
+                            <input type="number" id="txtHighSplit" class="form-control">
+                        </div>
+                    </div>
+
+                    <div id="keyboard mb-3">
+                        <div class="piano"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Release rate:</label>
+                    <input id="txtInstrumentReleaseRate" class="form-control" />
+                </div>
             </div>
-            
 
-          </div>
         </div>
 
-      </div>
     </div>
   </body>
 </html>

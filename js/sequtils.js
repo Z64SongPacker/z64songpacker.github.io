@@ -185,6 +185,7 @@ export class SeqUtils{
         // seq[mainVolumeCommandIndex + 1] = finalVolume;
         return seq;
     }*/
+   // TODO: IS THIS ACTUALLY CONSIDERING NO OVERFLOWING???
     static setLoudness(seq, originalLoudness, targetLoudness){
         this.seqReader(seq, function(command, value, cursor){
             if(command == 0xDB){

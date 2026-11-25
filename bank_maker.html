@@ -84,27 +84,9 @@
         const voices = new Map();
 
         var oot = null;
-        var ootRom = null;
-        
         var mm = null;
-        var mmRom = null;
-
+        var rom = null;
         var bank = null;
-
-        async function init(){
-            $("#loadingOverlay").removeClass("d-none");
-
-            await loadRom();
-
-            // Load the banks and samples
-            if(oot != null) ootRom = new Z64Rom(oot);
-
-            // Load main orchestra
-            bank = ootRom.banks[2];
-            await loadBank();
-
-            $("#loadingOverlay").addClass("d-none");
-        }
 
         async function saveRom(event){
             $("#loadingOverlay").removeClass("d-none");
@@ -119,7 +101,6 @@
             await loadRom();
             $("#loadingOverlay").addClass("d-none");
         }
-
         async function loadRom() {
             try {
                 const root = await navigator.storage.getDirectory();
@@ -132,6 +113,25 @@
             }
         }
 
+        async function init(){
+            $("#loadingOverlay").removeClass("d-none");
+
+            await loadRom();
+
+            // Load the banks and samples
+            if(oot != null) rom = new Z64Rom(oot);
+
+            // Load main orchestra
+            bank = rom.banks[0];
+            await loadBank();
+
+            /*for(var sample of rom.sampleBanks[0].samples.sort(function(a, b) { return Number(a.offset) - Number(b.offset); })){
+                console.log(`${sample.offset}: "",`);
+            }*/
+
+            $("#loadingOverlay").addClass("d-none");
+        }
+
         // ===================================
 
         function buildSelector(index, name){
@@ -141,11 +141,14 @@
                         <span class="col ms-3">${name}</span>
                     </div>`;
         }
+        function buildTunedSample(){
+
+        }
 
         async function loadBank(){
             hideAllViews();
             $("#panelBankView").removeClass("d-none");
-            $("#titleBankName").text(bank.name + " | Header");
+            $("#titleBankName").text(bank.name);
 
             // Load the instruments for the sidebar
             $("#collapseInstruments").empty();
@@ -155,7 +158,7 @@
             // No manual editing of books or loops >:I
             $("#collapseSamples").empty();
             bank.samples.forEach((sample, i) => {
-                var decodedSample = ootRom.findDecodedSample(bank.sampleBankId1, sample.sampleAddr);
+                var decodedSample = rom.findDecodedSample(bank.sampleBankId1, sample.sampleAddr);
                 $(`#collapseSamples`).append(buildSelector(i, decodedSample.name));
             });
 
@@ -163,10 +166,10 @@
             $("#collapseEnvelopes").empty();
             bank.envelopes.forEach((env, i) => $(`#collapseEnvelopes`).append(buildSelector(i, env.name)));
 
+            // Load the instrument slots
             $("#panelInstrumentSelector").empty();
             bank.instrumentSlots.forEach((instrumentIndex, i) => {
                 var instrument = bank.instruments[instrumentIndex];
-
                 $("#panelInstrumentSelector").append(
                     `<div class="row align-items-center g-3 px-3">
                         <b class="mb-0 col-auto" style="width: 70px">Slot ${i}</b>
@@ -193,6 +196,53 @@
             });
 
 
+            // Load the sound effects (not editable currently!)
+            $("#panelSoundEffects").empty();
+            if(bank.sfx.length == 0) $("#panelSoundEffects").append("<div class='px-3'>No sound effects</div>");
+            else bank.sfx.forEach((sfx, i) => {
+                var sample = bank.samples.find(s => s._offset == sfx.sample);
+                $("#panelSoundEffects").append(
+                    `<div class="row align-items-center g-4 px-3">
+                        <b class="mb-0 col-auto" style="width: 90px">Slot ${i}</b>
+                        <div class="col">
+                            <div class="row align-items-center">
+                                <label class="col-auto opacity-50">Sample:</label>
+                                <input type="text" class="form-control col" value="${rom.findDecodedSample(bank.sampleBankId1, sample?.sampleAddr)?.name || "None"}" disabled />
+                                <input type="text" id="txtSfxSampleAddress${i}" class="d-none" value="${sample?.sampleAddr}" />
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="row align-items-center">
+                                <label class="col-auto opacity-50">Tuning:</label>
+                                <input type="text" id="txtSfxTuning${i}" class="form-control col" value="${sfx.tuning}" disabled />
+                            </div>
+                        </div>
+                        <i id="btnSfxPlay${i}" class="icon-button col-auto fa-solid fa-play ${(sample ? "" : "opacity-25")}" title="Play"></i>
+                    </div>
+                    <hr class="my-2">`
+                );
+                
+                if(sample) $(`#btnSfxPlay${i}`).on("click", function(){
+                    var tuning = Number($(`#txtSfxTuning${i}`).val());
+                    var rate = tuning;
+
+                    var decodedSample = rom.findDecodedSample(bank.sampleBankId1, sample?.sampleAddr);
+                    var pcm = decodedSample.decodeVadpcm();
+                    
+                    const buffer = ctx.createBuffer(1, pcm.length, 32000);   // always 32 kHz, like the game
+                    const ch = buffer.getChannelData(0);
+                    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+
+                    const src = ctx.createBufferSource();
+                    src.buffer = buffer;
+                    src.playbackRate.value = Math.min(rate, 3.99996); // 4 or more gets clamped, that's an engine limit
+
+                    src.connect(ctx.destination);
+                    src.start();
+                });
+
+            });
+
         }
 
         async function loadInstrumentView(offset){
@@ -203,9 +253,9 @@
             $("#panelInstrumentView").removeClass("d-none");
             $("#titleInstrumentName").text(instrument.name);
 
-            $("#btnLowPitchSample").text(ootRom.findInstrumentSample(bank, instrument, "low")?.name || "None");
-            $("#btnNormalPitchSample").text(ootRom.findInstrumentSample(bank, instrument, "normal")?.name || "None");
-            $("#btnHighPitchSample").text(ootRom.findInstrumentSample(bank, instrument, "high")?.name || "None");
+            $("#btnLowPitchSample").text(rom.findInstrumentSample(bank, instrument, "low")?.name || "None");
+            $("#btnNormalPitchSample").text(rom.findInstrumentSample(bank, instrument, "normal")?.name || "None");
+            $("#btnHighPitchSample").text(rom.findInstrumentSample(bank, instrument, "high")?.name || "None");
 
             $("#txtLowPitchSampleTuning").val(instrument.lowPitchSample.tuning);
             $("#txtNormalPitchSampleTuning").val(instrument.normalPitchSample.tuning);
@@ -215,14 +265,16 @@
             $("#txtHighSplit").val(instrument.normalRangeHi);
             $("#txtInstrumentReleaseRate").val(instrument.releaseRate);
         
-            buildPiano(instrument);
+            buildInstrumentPiano(instrument);
         }
 
         function hideAllViews(){
             $("#panelBankView, #panelInstrumentView").addClass("d-none");
         }
 
-        function buildPiano(instrument){
+        
+
+        function buildInstrumentPiano(instrument){
             const blackKeys = [1, 3, 6, 8, 10];
             $(".piano").empty();
 
@@ -252,7 +304,7 @@
                 var tuning = Number($(`#txt${capitalizeFirstLetter(zone)}PitchSampleTuning`).val());
                 var rate = isDrum ? tuning : tuning * 2 ** ((midi - 60) / 12);
 
-                var decodedSample = ootRom.findInstrumentSample(bank, instrument, zone);
+                var decodedSample = rom.findInstrumentSample(bank, instrument, zone);
                 var pcm = decodedSample.decodeVadpcm();
                 
                 const buffer = ctx.createBuffer(1, pcm.length, 32000);   // always 32 kHz, like the game
@@ -276,7 +328,7 @@
 
                 // Start and register this voice
                 src.connect(gain).connect(ctx.destination);
-                src.start();                
+                src.start();
                 src.onended = () => { if (voices.get(midi)?.src === src) voices.delete(midi); };
                 voices.set(midi, {src, gain});
             });
@@ -344,7 +396,7 @@
             init();
 
             // Store ROMs on OPFS so the user doesn't need to re-add it every time
-            $("#fileOoTROM").on("change", saveRom);
+            $("#filerom").on("change", saveRom);
             $("#btnBackToMain").on("click", loadBank);
         });
     </script>
@@ -354,7 +406,7 @@
         <div class="col-3 overflow-y-auto overflow-x-hidden" id="viewTree">
             <!--<div class="form-group">
                 <label>Ocarina of Time 1.0 ROM:</label>
-                <input type="file" id="fileOoTROM">
+                <input type="file" id="filerom">
             </div>-->
 
             <h5>Bank Name</h5>
@@ -393,9 +445,16 @@
         </div>
 
         <div class="col-9 overflow-y-auto overflow-x-hidden bg-body-tertiary" id="viewObject">
-            <!-- BANK/HEADER VIEW -->
+
+
+            <!------------------------------- HEADER VIEW ----------------------------------->
+
             <div id="panelBankView" class="p-3">
-                <h5 id="titleBankName" class="mb-0">Bank name</h5>
+                <div class="row align-items-center g-2">
+                    <h5 class="col-auto mb-0 opacity-25">Bank header:</h5>
+                    <h5 id="titleBankName" class="col mb-0">Bank name</h5>
+                </div>
+                
                 <hr>
 
                 <h5>Instrument slots:</h5>
@@ -403,12 +462,23 @@
                     <div id="panelInstrumentSelector"></div>
                     <button id="btnAddNewInstrumentSlot" class="btn"><i class="fa-solid fa-plus me-2"></i>Add new instrument slot</button>
                 </div>
+
+                <hr>
+
+                <h5>Sound effects:</h5>
+                <div class="card bg-body-secondary py-2">
+                    <div id="panelSoundEffects"></div>
+                </div>
             </div>
 
+
+            <!----------------------------------- INSTRUMENT VIEW ------------------------------------->
+
             <div id="panelInstrumentView" class="p-3 d-none">
-                <div class="row align-items-center">
+                <div class="row align-items-center g-2">
                     <i id="btnBackToMain" class="col-auto icon-button fa-lg fa-solid fa-arrow-left"></i>
-                    <h4 id="titleInstrumentName" class="col">Instrument name</h4>
+                    <h5 class="col-auto mb-0 opacity-25">Instrument:</h5>
+                    <h5 id="titleInstrumentName" class="col mb-0">Instrument name</h5>
                 </div>
                 <hr>
                 <div class="row g-3 mb-3">
@@ -476,6 +546,14 @@
                     <input id="txtInstrumentReleaseRate" class="form-control" />
                 </div>
             </div>
+
+
+            <!----------------------------------- DRUMS VIEW ----------------------------------->
+
+
+            <!----------------------------------- SFX VIEW ------------------------------------->
+
+
 
         </div>
 

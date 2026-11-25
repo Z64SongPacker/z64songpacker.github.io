@@ -804,7 +804,9 @@ export class Z64Rom{
             var sampleBankId = this.sampleTable.resolveAlias(bank.sampleBankId1); // sampleBankId2 is never used in vanilla
             if(game == "oot" && bank == 37) sampleBankId = bank.sampleBankId2; // EXCEPT for this bank for some reason (according to oot decomp)
             var sampleBank = this.sampleBanks[sampleBankId];
-            sampleBank.displayName = d.sampleBanks[sampleBankId]?.name;
+            var sampleBankMetadata = d.sampleBanks[sampleBankId];
+
+            sampleBank.displayName = sampleBankMetadata?.name;
 
             // Set instrument metadata
             for(var f = 0; f < bank.instruments.length; f++){
@@ -814,7 +816,7 @@ export class Z64Rom{
             // Search each instrument, drum, and SFX and collect the sample's information
             for(var sample of bank.samples){
                 if(sampleBank.samples.some(s => s.sampleBankId == sampleBankId && s.offset == sample.sampleAddr)) continue;
-                sampleBank.samples.push(new DecodedSample(
+                var decodedSample = new DecodedSample(
                     sampleBankId,
                     sample.sampleAddr,
                     sample.header.size,
@@ -822,7 +824,9 @@ export class Z64Rom{
                     bank.books.find(b => b._offset == sample.book),
                     bank.loops.find(l => l._offset == sample.loop),
                     new Uint8Array(sampleBank.bytes.buffer, sampleBank.bytes.byteOffset + sample.sampleAddr, sample.header.size)
-                ));
+                );
+                if(sampleBankMetadata) decodedSample.displayName = sampleBankMetadata.samples[sample.sampleAddr];
+                sampleBank.samples.push(decodedSample);
             }
         }
 

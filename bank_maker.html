@@ -19,65 +19,6 @@
     <script src="https://unpkg.com/qwerty-hancock/dist/index.umd.min.js"></script>
   </head>
   <body>
-    <style>
-        .piano{
-            width: 100%;
-            display: flex;
-            position: relative;
-            touch-action: none;
-        }
-
-        .key{
-            cursor: pointer;
-            border: 1px solid black;
-        }
-
-        .key-white{
-            flex: 1;
-            color: white;
-            background-color: currentColor;
-            height: 80px;
-            z-index: 100;
-        }
-        .key-black{
-            position: absolute;
-            color: black;
-            background-color: currentColor;
-            height: 50px;
-            width: 0.8%;
-            z-index: 101;
-        }
-
-        .key-white.zone-low{
-            color: color-mix(in srgb, white 70%, var(--bs-warning));
-        }
-        .key-black.zone-low{
-            color: color-mix(in srgb, black 70%, var(--bs-warning));
-        }
-
-        .key-white.zone-normal{
-            color: color-mix(in srgb, white 70%, var(--bs-primary));
-        }
-        .key-black.zone-normal{
-            color: color-mix(in srgb, black 70%, var(--bs-primary));
-        }
-
-        .key-white.zone-high{
-            color: color-mix(in srgb, white 70%, var(--bs-danger));
-        }
-        .key-black.zone-high{
-            color: color-mix(in srgb, black 70%, var(--bs-danger));
-        }
-
-        .key-white:hover{
-            background-color: color-mix(in srgb, currentColor 90%, black);
-        }
-        .key-black:hover{
-            background-color: color-mix(in srgb, currentColor 75%, white);
-        }
-        
-    </style>
-
     <script type="module">
         import { Bank, Z64Rom } from "./js/bankutils.js";
         const ctx = new AudioContext();
@@ -122,7 +63,7 @@
             if(oot != null) rom = new Z64Rom(oot);
 
             // Load main orchestra
-            bank = rom.banks[0];
+            bank = rom.banks[3];
             await loadBank();
 
             /*for(var sample of rom.sampleBanks[0].samples.sort(function(a, b) { return Number(a.offset) - Number(b.offset); })){
@@ -130,6 +71,10 @@
             }*/
 
             $("#loadingOverlay").addClass("d-none");
+        }
+
+        function hideAllViews(){
+            $("#panelBankView, #panelInstrumentView").addClass("d-none");
         }
 
         // ===================================
@@ -240,9 +185,41 @@
                     src.connect(ctx.destination);
                     src.start();
                 });
-
             });
 
+            loadDrumView();
+        }
+
+        async function loadDrumView(){
+            hideAllViews();
+            $("#panelDrumView").removeClass("d-none");
+            $("#titleDrumName").text(bank.drumsName);
+
+            buildPiano("#pianoDrums", (midi) => {
+                var drum = "";
+                if(midi < 21 || midi > 21 + bank.drums.length) drum = "disabled";
+                return `data-drum=${drum}`;
+
+            }, (key, midi, isPress) => {
+                const drum = bank.drums[midi - 21];
+                if(!drum) return null;
+                const sample = bank.samples.find(s => s._offset == drum.sample.sample);
+                const decodedSample = rom.findDecodedSample(bank.sampleBankId1, sample.sampleAddr);
+                
+                if(isPress){
+                    $("#btnDrumSample").text(decodedSample?.name || "None");
+                    $("#txtDrumTuning").val(drum.sample.tuning);
+                    $("#txtDrumPan").val(drum.pan);
+                    $("#txtDrumReleaseRate").val(drum.releaseRate);
+                }
+
+                return {
+                    playbackRate: drum.sample.tuning,
+                    decodedSample: decodedSample,
+                    releaseRate: drum.releaseRate,
+                    pan: drum.pan
+                };
+            });
         }
 
         async function loadInstrumentView(offset){
@@ -265,20 +242,29 @@
             $("#txtHighSplit").val(instrument.normalRangeHi);
             $("#txtInstrumentReleaseRate").val(instrument.releaseRate);
         
-            buildInstrumentPiano(instrument);
+            // buildInstrumentPiano(instrument);
+            buildPiano("#pianoInstrument", (i) => {
+                var zone = "normal";
+                if(i < instrument.normalRangeLo) zone = "low";
+                else if(i > instrument.normalRangeHi) zone = "high";
+                // TODO: Also add the tuning limit
+                return `data-zone="${zone}"`;
+
+            }, (key, midi) => {
+                var zone = key.attr("data-zone");
+                var tuning = Number($(`#txt${capitalizeFirstLetter(zone)}PitchSampleTuning`).val());
+                return {
+                    playbackRate: tuning * 2 ** ((midi - 60) / 12),
+                    decodedSample: rom.findInstrumentSample(bank, instrument, zone),
+                    releaseRate: Number($("#txtInstrumentReleaseRate").val())
+                };
+            });
         }
 
-        function hideAllViews(){
-            $("#panelBankView, #panelInstrumentView").addClass("d-none");
-        }
-
-        
-
-        function buildInstrumentPiano(instrument){
-            const blackKeys = [1, 3, 6, 8, 10];
-            $(".piano").empty();
-
+        function buildPiano(pianoId, appendToKey, noteData){
             // Add the keys
+            $(pianoId).empty();
+            const blackKeys = [1, 3, 6, 8, 10];
             var whiteKeyIndex = 0;
             for(var i = 0; i < 128; i++){
                 var isBlack = blackKeys.includes(i % 12);
@@ -287,39 +273,29 @@
                 else whiteKeyIndex++;
 
                 var color = isBlack ? "key-black" : "key-white";
-                var zone = "normal";
-                if(i < instrument.normalRangeLo) zone = "low";
-                else if(i > instrument.normalRangeHi) zone = "high";
-                
-                // TODO: Also show the tuning limit
-
-                $(".piano").append(`<div class='key ${color} zone-${zone}' style='${style}' data-midi="${i}" data-zone="${zone}"></div>`);
+                $(pianoId).append(`<div class='key ${color}' style='${style}' data-midi="${i}" ${appendToKey(i)}></div>`);
             }
 
-            // Get the samples
-            $(".key").on("pointerdown", function(){
+            $(`${pianoId} .key`).on("pointerdown", function(){
                 var midi = $(this).attr("data-midi");
-                var zone = $(this).attr("data-zone");
-                var isDrum = false;
-                var tuning = Number($(`#txt${capitalizeFirstLetter(zone)}PitchSampleTuning`).val());
-                var rate = isDrum ? tuning : tuning * 2 ** ((midi - 60) / 12);
+                var data = noteData($(this), midi, true);
+                if(!data) return;
 
-                var decodedSample = rom.findInstrumentSample(bank, instrument, zone);
-                var pcm = decodedSample.decodeVadpcm();
-                
+                const pcm = data.decodedSample.decodeVadpcm();
                 const buffer = ctx.createBuffer(1, pcm.length, 32000);   // always 32 kHz, like the game
                 const ch = buffer.getChannelData(0);
                 for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
 
                 const src = ctx.createBufferSource();
                 src.buffer = buffer;
-                src.playbackRate.value = Math.min(rate, 3.99996); // 4 or more gets clamped, that's an engine limit
+                src.playbackRate.value = Math.min(data.playbackRate, 3.99996); // 4 or more gets clamped, that's an engine limit
 
                 // Do loops
-                if (decodedSample.loop.count !== 0) {
+                const loop = data.decodedSample.loop;
+                if (loop.count !== 0) {
                     src.loop = true;
-                    src.loopStart = decodedSample.loop.start / 32000;
-                    src.loopEnd = decodedSample.loop.end / 32000;
+                    src.loopStart = loop.start / 32000;
+                    src.loopEnd = loop.end / 32000;
                 }
 
                 // TODO: ENVELOPES
@@ -333,17 +309,18 @@
                 voices.set(midi, {src, gain});
             });
 
-            $(".key").on("pointerup pointerleave pointercancel", function(){
+            $(`${pianoId} .key`).on("pointerup pointerleave pointercancel", function(){
                 var midi = $(this).attr("data-midi");
-                var releaseRate = Number($("#txtInstrumentReleaseRate").val());
+                var data = noteData($(this), midi, false);
+                if(!data) return;
 
                 const v = voices.get(midi);
-                if (!v || releaseRate == 0) return;
+                if (!v || data.releaseRate == 0) return;
                 voices.delete(midi);
 
                 const now = ctx.currentTime;
                 const gain = v.gain.gain;
-                const decaySeconds = Math.max(0.005, gain.value * calculateDecay(releaseRate) / 60);
+                const decaySeconds = Math.max(0.005, gain.value * calculateDecay(data.releaseRate) / 60);
 
                 gain.cancelScheduledValues(now);
                 gain.setValueAtTime(gain.value, now);
@@ -365,24 +342,6 @@
             else if(releaseRate >= 1) return 60 * (23 - releaseRate);
             else return 0;
         }
-
-        // Build sample information from the form for playback for the current instrument
-        /*function pickSample(midi){
-            return {
-                buffer: ,
-                
-            };
-        }*/
-
-        function noteOn(midi){
-            noteOff(midi);
-            var sample = pickSample(midi);
-        }
-
-        function noteOff(midi){
-
-        }
-
 
         // =======================
 
@@ -536,8 +495,8 @@
                         </div>
                     </div>
 
-                    <div id="keyboard mb-3">
-                        <div class="piano"></div>
+                    <div class="mb-3">
+                        <div id="pianoInstrument" class="piano"></div>
                     </div>
                 </div>
 
@@ -549,6 +508,43 @@
 
 
             <!----------------------------------- DRUMS VIEW ----------------------------------->
+
+            <div id="panelDrumView" class="p-3 d-none">
+                <div class="row align-items-center g-2">
+                    <i id="btnBackToMain" class="col-auto icon-button fa-lg fa-solid fa-arrow-left"></i>
+                    <h5 class="col-auto mb-0 opacity-25">Drums:</h5>
+                    <h5 id="titleDrumName" class="col mb-0">Drum name</h5>
+                </div>
+                <hr>
+
+                <div class="card p-3 mb-3">
+                    <div class="row g-2">
+                        <div class="col-3 mb-3">
+                            <label>Sample:</label>
+                            <button type="button" id="btnDrumSample" class="form-control">None</button>
+                        </div>
+
+                        <div class="col-3 mb-3">
+                            <label>Tuning:</label>
+                            <input id="txtDrumTuning" class="form-control" />
+                        </div>
+
+                        <div class="col-3 mb-3">
+                            <label>Pan:</label>
+                            <input id="txtDrumPan" class="form-control" />
+                        </div>
+
+                        <div class="col-3 mb-3">
+                            <label>Release rate:</label>
+                            <input id="txtDrumReleaseRate" class="form-control" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <div id="pianoDrums" class="piano"></div>
+                </div>
+            </div>
 
 
             <!----------------------------------- SFX VIEW ------------------------------------->

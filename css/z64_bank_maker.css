@@ -1,3 +1,70 @@
 #viewTree, #viewObject{
     height: 100vh;
 }
+
+.piano{
+    width: 100%;
+    display: flex;
+    position: relative;
+    touch-action: none;
+}
+
+.key{
+    cursor: pointer;
+    border: 1px solid black;
+}
+
+.key-white{
+    flex: 1;
+    color: white;
+    background-color: currentColor;
+    height: 80px;
+    z-index: 100;
+}
+.key-black{
+    position: absolute;
+    color: black;
+    background-color: currentColor;
+    height: 50px;
+    width: 0.8%;
+    z-index: 101;
+}
+
+/* INSTRUMENTS */
+.key-white[data-zone="low"]{
+    color: color-mix(in srgb, white 70%, var(--bs-warning));
+}
+.key-black[data-zone="low"]{
+    color: color-mix(in srgb, black 70%, var(--bs-warning));
+}
+
+.key-white[data-zone="normal"]{
+    color: color-mix(in srgb, white 70%, var(--bs-primary));
+}
+.key-black[data-zone="normal"]{
+    color: color-mix(in srgb, black 70%, var(--bs-primary));
+}
+
+.key-white[data-zone="high"]{
+    color: color-mix(in srgb, white 70%, var(--bs-danger));
+}
+.key-black[data-zone="high"]{
+    color: color-mix(in srgb, black 70%, var(--bs-danger));
+}
+
+.key-white:hover{
+    background-color: color-mix(in srgb, currentColor 90%, black);
+}
+.key-black:hover{
+    background-color: color-mix(in srgb, currentColor 75%, white);
+}
+
+/* DRUMS */
+.key-white[data-drum="disabled"], .key-white[data-drum="disabled"]:hover{
+    cursor: default;
+    background-color: color-mix(in srgb, currentColor 60%, black);
+}
+.key-black[data-drum="disabled"], .key-black[data-drum="disabled"]:hover{
+    cursor: default;
+    background-color: color-mix(in srgb, currentColor 80%, white);
+}

@@ -74,7 +74,7 @@
         }
 
         function hideAllViews(){
-            $("#panelBankView, #panelInstrumentView").addClass("d-none");
+            $("#panelBankView, #panelInstrumentView, #panelDrumView").addClass("d-none");
         }
 
         // ===================================
@@ -140,6 +140,9 @@
                 });
             });
 
+            // Drums and new instruments
+            $("#btnEditDrums").on("click", loadDrumView);
+
 
             // Load the sound effects (not editable currently!)
             $("#panelSoundEffects").empty();
@@ -187,7 +190,7 @@
                 });
             });
 
-            loadDrumView();
+            //loadDrumView();
         }
 
         async function loadDrumView(){
@@ -197,8 +200,8 @@
 
             buildPiano("#pianoDrums", (midi) => {
                 var drum = "";
-                if(midi < 21 || midi > 21 + bank.drums.length) drum = "disabled";
-                return `data-drum=${drum}`;
+                if(midi < 21 || midi > 21 + bank.drums.length) drum = "none";
+                return `data-zone=${drum}`;
 
             }, (key, midi, isPress) => {
                 const drum = bank.drums[midi - 21];
@@ -243,15 +246,21 @@
             $("#txtInstrumentReleaseRate").val(instrument.releaseRate);
         
             // buildInstrumentPiano(instrument);
-            buildPiano("#pianoInstrument", (i) => {
+            buildPiano("#pianoInstrument", (midi) => {
                 var zone = "normal";
-                if(i < instrument.normalRangeLo) zone = "low";
-                else if(i > instrument.normalRangeHi) zone = "high";
+                if(midi < 21) return "data-zone='none'";
+                else if(midi < instrument.normalRangeLo + 21) zone = "low";
+                else if(midi > instrument.normalRangeHi + 21) zone = "high";
+
+                var tuning = Number($(`#txt${capitalizeFirstLetter(zone)}PitchSampleTuning`).val());
+                var playbackRate = tuning * 2 ** ((midi - 60) / 12);
+
                 // TODO: Also add the tuning limit
-                return `data-zone="${zone}"`;
+                return `data-zone="${zone}"` + (playbackRate >= 4 ? " data-tuning-limit='true'" : "");
 
             }, (key, midi) => {
                 var zone = key.attr("data-zone");
+                if(zone == "none") return;
                 var tuning = Number($(`#txt${capitalizeFirstLetter(zone)}PitchSampleTuning`).val());
                 return {
                     playbackRate: tuning * 2 ** ((midi - 60) / 12),
@@ -272,8 +281,11 @@
                 if(isBlack) style = `left: calc((${(whiteKeyIndex)} / 75) * 100% - 0.4%)`;
                 else whiteKeyIndex++;
 
+                var inside = "";
+                if(!isBlack && (i % 12) == 0) inside = `<div><span>${i}</span></div>`;
+
                 var color = isBlack ? "key-black" : "key-white";
-                $(pianoId).append(`<div class='key ${color}' style='${style}' data-midi="${i}" ${appendToKey(i)}></div>`);
+                $(pianoId).append(`<div class='key ${color}' style='${style}' data-midi="${i}" ${appendToKey(i)}>${inside}</div>`);
             }
 
             $(`${pianoId} .key`).on("pointerdown", function(){
@@ -356,7 +368,7 @@
 
             // Store ROMs on OPFS so the user doesn't need to re-add it every time
             $("#filerom").on("change", saveRom);
-            $("#btnBackToMain").on("click", loadBank);
+            $(".btnBackToMain").on("click", loadBank);
         });
     </script>
 
@@ -419,6 +431,12 @@
                 <h5>Instrument slots:</h5>
                 <div class="card bg-body-secondary py-2">
                     <div id="panelInstrumentSelector"></div>
+                    
+                    <div class="row align-items-center g-3 px-3">
+                        <b class="mb-0 col-auto" style="width: 70px">Drums</b>
+                        <i id="btnEditDrums" class="icon-button col-auto fa-solid fa-edit" title="Edit drums"></i>
+                    </div>
+                    <hr class="my-2">
                     <button id="btnAddNewInstrumentSlot" class="btn"><i class="fa-solid fa-plus me-2"></i>Add new instrument slot</button>
                 </div>
 
@@ -435,7 +453,7 @@
 
             <div id="panelInstrumentView" class="p-3 d-none">
                 <div class="row align-items-center g-2">
-                    <i id="btnBackToMain" class="col-auto icon-button fa-lg fa-solid fa-arrow-left"></i>
+                    <i class="btnBackToMain col-auto icon-button fa-lg fa-solid fa-arrow-left"></i>
                     <h5 class="col-auto mb-0 opacity-25">Instrument:</h5>
                     <h5 id="titleInstrumentName" class="col mb-0">Instrument name</h5>
                 </div>
@@ -511,7 +529,7 @@
 
             <div id="panelDrumView" class="p-3 d-none">
                 <div class="row align-items-center g-2">
-                    <i id="btnBackToMain" class="col-auto icon-button fa-lg fa-solid fa-arrow-left"></i>
+                    <i class="btnBackToMain col-auto icon-button fa-lg fa-solid fa-arrow-left"></i>
                     <h5 class="col-auto mb-0 opacity-25">Drums:</h5>
                     <h5 id="titleDrumName" class="col mb-0">Drum name</h5>
                 </div>
